@@ -1,0 +1,77 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing
+coverage/
+*.log
+
+# Production
+build/
+dist/
+*.local
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Expo
+.expo/
+.expo-shared/
+
+# NestJS
+backend/dist/
+backend/node_modules/
+backend/uploads/
+
+# React/Vite
+admin-dashboard/dist/
+admin-dashboard/node_modules/
+
+# Mobile
+mobile/node_modules/
+mobile/.expo/
+
+# AI tool configs
+.agent/
+.claude/
+.codebuddy/
+.codex/
+.continue/
+.cursor/
+.cursorrules
+.gemini/
+.kiro/
+.opencode/
+.qoder/
+.roo/
+.trae/
+.windsurf/
+
+# Screenshots / images at root
+*.jpeg
+*.jpg
+*.png
+screenshots/
+
+# Windows artifacts
+nul
+
+# Misc
+*.pem
+*.key

@@ -1,0 +1,21 @@
+{
+  "name": "expense-tracker-app",
+  "version": "1.0.0",
+  "description": "Financial budgeting app with AI-powered expense tracking",
+  "private": true,
+  "scripts": {
+    "dev:mobile": "cd mobile && npm start",
+    "dev:backend": "cd backend && npm run start:dev",
+    "dev:admin": "cd admin-dashboard && npm run dev",
+    "install:all": "cd mobile && npm install && cd ../backend && npm install && cd ../admin-dashboard && npm install"
+  },
+  "keywords": [
+    "expense-tracker",
+    "budgeting",
+    "react-native",
+    "nestjs"
+  ],
+  "author": "",
+  "license": "MIT"
+}
+
