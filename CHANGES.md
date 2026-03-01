@@ -2,6 +2,13 @@
 
 ## Session Changes (Latest First)
 
+### 37. Fix inviteCode migration error on existing PostgreSQL data
+**Files:**
+- `backend/src/entities/expense-group.entity.ts` — Added `nullable: true` to `inviteCode` column so TypeORM can add it to tables with existing rows
+- `backend/src/groups/groups.service.ts` — Added `OnModuleInit` lifecycle hook with `backfillInviteCodes()` that generates unique invite codes for any existing groups where `inviteCode IS NULL`
+
+**Root cause:** TypeORM `synchronize: true` tried to `ALTER TABLE "expense_groups" ADD "inviteCode" NOT NULL` but existing rows had no value, causing PostgreSQL to reject the query. Making the column nullable allows the ALTER to succeed, and the backfill populates codes on startup.
+
 ### 36. Fix 11 pre-existing TypeScript errors across 3 files
 **Files:**
 - `shared/types.ts` — Added `LocationRule` interface (with `minTimeSpent` matching backend field name)

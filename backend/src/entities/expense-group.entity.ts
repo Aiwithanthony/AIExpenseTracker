@@ -27,7 +27,7 @@ export class ExpenseGroup {
   @Column({ default: 'USD' })
   baseCurrency: string;
 
-  @Column({ unique: true, length: 8 })
+  @Column({ unique: true, length: 8, nullable: true })
   inviteCode: string;
 
   @Column()

@@ -1,5 +1,6 @@
 import {
   Injectable,
+  OnModuleInit,
   NotFoundException,
   ForbiddenException,
   BadRequestException,
@@ -29,7 +30,7 @@ import {
 import { randomUUID } from 'crypto';
 
 @Injectable()
-export class GroupsService {
+export class GroupsService implements OnModuleInit {
   constructor(
     @InjectRepository(ExpenseGroup)
     private groupsRepository: Repository<ExpenseGroup>,
@@ -49,6 +50,26 @@ export class GroupsService {
     private currencyService: CurrencyService,
     private splitCalculationService: SplitCalculationService,
   ) {}
+
+  async onModuleInit() {
+    await this.backfillInviteCodes();
+  }
+
+  private async backfillInviteCodes(): Promise<void> {
+    const groups = await this.groupsRepository
+      .createQueryBuilder('group')
+      .where('group.inviteCode IS NULL')
+      .getMany();
+
+    for (const group of groups) {
+      group.inviteCode = await this.generateUniqueInviteCode();
+      await this.groupsRepository.save(group);
+    }
+
+    if (groups.length > 0) {
+      console.log(`Backfilled invite codes for ${groups.length} existing groups`);
+    }
+  }
 
   // --- Helpers ---
 
