@@ -29,7 +29,7 @@ export class Payment {
   @Column()
   userId: string;
 
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 18, scale: 2 })
   amount: number;
 
   @Column()

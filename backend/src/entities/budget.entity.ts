@@ -21,7 +21,7 @@ export class Budget {
   @Column({ nullable: true })
   categoryId: string; // null for overall budget
 
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 18, scale: 2 })
   amount: number;
 
   @Column()

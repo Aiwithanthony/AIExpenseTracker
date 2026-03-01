@@ -31,7 +31,7 @@ export class Category {
   @Column({ default: false })
   isDefault: boolean;
 
-  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  @Column('decimal', { precision: 18, scale: 2, nullable: true })
   budgetLimit: number; // Monthly budget limit for this category
 
   @Column({ nullable: true })

@@ -21,6 +21,10 @@ import CalendarScreen from '../screens/CalendarScreen';
 import GeolocationScreen from '../screens/GeolocationScreen';
 import GroupsScreen from '../screens/GroupsScreen';
 import SubscriptionsScreen from '../screens/SubscriptionsScreen';
+import GroupDetailScreen from '../screens/GroupDetailScreen';
+import AddGroupExpenseScreen from '../screens/AddGroupExpenseScreen';
+import SettleUpScreen from '../screens/SettleUpScreen';
+import InviteMembersScreen from '../screens/InviteMembersScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -213,6 +217,26 @@ export default function AppNavigator() {
               name="Subscriptions"
               component={SubscriptionsScreen}
               options={{ title: 'Subscription' }}
+            />
+            <Stack.Screen
+              name="GroupDetail"
+              component={GroupDetailScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="AddGroupExpense"
+              component={AddGroupExpenseScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="SettleUp"
+              component={SettleUpScreen}
+              options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="InviteMembers"
+              component={InviteMembersScreen}
+              options={{ headerShown: false }}
             />
           </>
         )}

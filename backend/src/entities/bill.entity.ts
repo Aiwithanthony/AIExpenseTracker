@@ -21,7 +21,7 @@ export class Bill {
   @Column()
   name: string; // e.g., "Electricity Bill", "Netflix Subscription"
 
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 18, scale: 2 })
   amount: number;
 
   @Column()

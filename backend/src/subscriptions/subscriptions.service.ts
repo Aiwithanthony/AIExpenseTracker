@@ -86,8 +86,8 @@ export class SubscriptionsService {
     tier: SubscriptionTier;
     expiresAt?: Date;
   }> {
+    // findOne already loads the user relation — no need for a separate query
     const subscription = await this.findOne(userId);
-    const user = await this.usersRepository.findOne({ where: { id: userId } });
 
     if (!subscription || subscription.status !== SubscriptionStatus.ACTIVE) {
       return {
@@ -101,14 +101,12 @@ export class SubscriptionsService {
 
     if (isExpired) {
       // Downgrade to free
-      if (user) {
-        user.subscriptionTier = SubscriptionTier.FREE;
-        await this.usersRepository.save(user);
+      if (subscription.user) {
+        subscription.user.subscriptionTier = SubscriptionTier.FREE;
+        await this.usersRepository.save(subscription.user);
       }
-      if (subscription) {
-        subscription.status = SubscriptionStatus.CANCELED;
-        await this.subscriptionsRepository.save(subscription);
-      }
+      subscription.status = SubscriptionStatus.CANCELED;
+      await this.subscriptionsRepository.save(subscription);
 
       return {
         hasActiveSubscription: false,

@@ -626,7 +626,7 @@ class ApiService {
     return this.request('/groups');
   }
 
-  async createGroup(data: { name: string; memberIds: string[] }) {
+  async createGroup(data: { name: string; description?: string; baseCurrency?: string; memberIds?: string[] }) {
     return this.request('/groups', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -637,13 +637,9 @@ class ApiService {
     return this.request(`/groups/${id}`);
   }
 
-  async getGroupExpenses(id: string) {
-    return this.request(`/groups/${id}/expenses`);
-  }
-
-  async addExpenseToGroup(groupId: string, data: any) {
-    return this.request(`/groups/${groupId}/expenses`, {
-      method: 'POST',
+  async updateGroup(id: string, data: { name?: string; description?: string; baseCurrency?: string }) {
+    return this.request(`/groups/${id}`, {
+      method: 'PATCH',
       body: JSON.stringify(data),
     });
   }
@@ -652,6 +648,99 @@ class ApiService {
     return this.request(`/groups/${id}`, {
       method: 'DELETE',
     });
+  }
+
+  // Group Members
+  async getGroupMembers(groupId: string) {
+    return this.request(`/groups/${groupId}/members`);
+  }
+
+  async addGroupMembers(groupId: string, memberIds: string[]) {
+    return this.request(`/groups/${groupId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ memberIds }),
+    });
+  }
+
+  async removeGroupMember(groupId: string, userId: string) {
+    return this.request(`/groups/${groupId}/members/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Group Expenses
+  async getGroupExpenses(groupId: string) {
+    return this.request(`/groups/${groupId}/expenses`);
+  }
+
+  async createGroupExpense(groupId: string, data: {
+    amount: number;
+    currency: string;
+    description: string;
+    date: string;
+    splitType: string;
+    paidBy?: string;
+    splitBetween: string[];
+    splits?: Array<{ userId: string; amount: number }>;
+  }) {
+    return this.request(`/groups/${groupId}/expenses`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async deleteGroupExpense(groupId: string, expenseId: string) {
+    return this.request(`/groups/${groupId}/expenses/${expenseId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Group Balances
+  async getGroupBalances(groupId: string) {
+    return this.request(`/groups/${groupId}/balances`);
+  }
+
+  // Group Settlements
+  async createSettlement(groupId: string, data: {
+    toUserId: string;
+    amount: number;
+    currency: string;
+    note?: string;
+  }) {
+    return this.request(`/groups/${groupId}/settlements`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async getSettlements(groupId: string) {
+    return this.request(`/groups/${groupId}/settlements`);
+  }
+
+  // Group Invites & Join
+  async joinGroupByCode(inviteCode: string) {
+    return this.request('/groups/join', {
+      method: 'POST',
+      body: JSON.stringify({ inviteCode }),
+    });
+  }
+
+  async createGroupInvite(groupId: string, email: string) {
+    return this.request(`/groups/${groupId}/invites`, {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+  }
+
+  async acceptGroupInvite(token: string) {
+    return this.request(`/groups/accept-invite/${token}`, {
+      method: 'POST',
+    });
+  }
+
+  // User Search
+  async searchUsers(query: string) {
+    return this.request(`/groups/search-users?q=${encodeURIComponent(query)}`);
   }
 
   // Subscriptions

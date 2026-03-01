@@ -9,6 +9,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -34,6 +35,9 @@ const ACCENT_LIGHT = '#8B2FC9';
 interface Group {
   id: string;
   name: string;
+  description?: string;
+  baseCurrency?: string;
+  inviteCode?: string;
   members?: any[];
   createdAt?: string;
 }
@@ -44,14 +48,19 @@ export default function GroupsScreen({ navigation }: any) {
 
   const [groups, setGroups] = useState<Group[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showJoinModal, setShowJoinModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupDescription, setNewGroupDescription] = useState('');
+  const [newGroupCurrency, setNewGroupCurrency] = useState('USD');
+  const [joinCode, setJoinCode] = useState('');
   const [creating, setCreating] = useState(false);
+  const [joining, setJoining] = useState(false);
   const [isPremium, setIsPremium] = useState<boolean | null>(null);
 
   const loadGroups = useCallback(async () => {
     try {
-      setLoading(true);
       const [groupsData, subStatus] = await Promise.all([
         api.getGroups(),
         api.getSubscriptionStatus().catch(() => ({ hasActiveSubscription: false, tier: 'free', expiresAt: null })),
@@ -61,15 +70,25 @@ export default function GroupsScreen({ navigation }: any) {
     } catch (error: any) {
       setGroups([]);
       setIsPremium(false);
-    } finally {
-      setLoading(false);
     }
   }, []);
 
+  const initialLoad = useCallback(async () => {
+    setLoading(true);
+    await loadGroups();
+    setLoading(false);
+  }, [loadGroups]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadGroups();
+    setRefreshing(false);
+  }, [loadGroups]);
+
   useFocusEffect(
     useCallback(() => {
-      loadGroups();
-    }, [loadGroups]),
+      initialLoad();
+    }, [initialLoad]),
   );
 
   const handleCreateGroup = async () => {
@@ -80,14 +99,40 @@ export default function GroupsScreen({ navigation }: any) {
     }
     setCreating(true);
     try {
-      await api.createGroup({ name: trimmed, memberIds: [] });
+      await api.createGroup({
+        name: trimmed,
+        description: newGroupDescription.trim() || undefined,
+        baseCurrency: newGroupCurrency || 'USD',
+      });
       setNewGroupName('');
+      setNewGroupDescription('');
+      setNewGroupCurrency('USD');
       setShowCreateModal(false);
       await loadGroups();
     } catch (error: any) {
       Alert.alert('Error', error.message || 'Failed to create group');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleJoinGroup = async () => {
+    const trimmed = joinCode.trim();
+    if (!trimmed) {
+      Alert.alert('Error', 'Please enter an invite code');
+      return;
+    }
+    setJoining(true);
+    try {
+      await api.joinGroupByCode(trimmed);
+      setJoinCode('');
+      setShowJoinModal(false);
+      await loadGroups();
+      Alert.alert('Success', 'You have joined the group!');
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'Invalid invite code');
+    } finally {
+      setJoining(false);
     }
   };
 
@@ -123,13 +168,15 @@ export default function GroupsScreen({ navigation }: any) {
       return;
     }
     setNewGroupName('');
+    setNewGroupDescription('');
+    setNewGroupCurrency('USD');
     setShowCreateModal(true);
   };
 
   const renderGroupItem = ({ item, index }: { item: Group; index: number }) => (
     <Animated.View entering={FadeInDown.duration(400).delay(index * 80)}>
       <AnimatedPressable
-        onPress={() => {}}
+        onPress={() => navigation.navigate('GroupDetail', { groupId: item.id })}
         onLongPress={() => handleDeleteGroup(item)}
         scaleValue={0.97}
         style={styles.groupItemWrapper}
@@ -137,8 +184,14 @@ export default function GroupsScreen({ navigation }: any) {
         <GlassCard style={styles.groupItem} tint={isDark ? 'dark' : 'light'}>
           <View style={styles.groupInfo}>
             <Text style={[styles.groupName, { color: colors.text }]}>{item.name}</Text>
+            {item.description ? (
+              <Text style={[styles.groupDescription, { color: colors.textSecondary }]} numberOfLines={1}>
+                {item.description}
+              </Text>
+            ) : null}
             <Text style={[styles.groupMeta, { color: colors.textSecondary }]}>
               {item.members?.length || 0} member{(item.members?.length || 0) !== 1 ? 's' : ''}
+              {item.baseCurrency ? ` \u00B7 ${item.baseCurrency}` : ''}
             </Text>
           </View>
           <Text style={styles.chevron}>{'\u203A'}</Text>
@@ -176,7 +229,7 @@ export default function GroupsScreen({ navigation }: any) {
             <Text style={styles.emptyEmoji}>{'\uD83D\uDC65'}</Text>
             <Text style={[styles.emptyTitle, { color: colors.text }]}>No Groups Yet</Text>
             <Text style={[styles.emptyMessage, { color: colors.textSecondary }]}>
-              Create a group to start tracking shared expenses with friends and family.
+              Create a group to start tracking shared expenses, or join an existing one with an invite code.
             </Text>
             <AnimatedPressable onPress={handlePressCreate} scaleValue={0.97} style={styles.emptyCta}>
               <LinearGradient
@@ -188,6 +241,15 @@ export default function GroupsScreen({ navigation }: any) {
                 <Text style={styles.ctaText}>Create Your First Group</Text>
               </LinearGradient>
             </AnimatedPressable>
+            <AnimatedPressable
+              onPress={() => { setJoinCode(''); setShowJoinModal(true); }}
+              scaleValue={0.97}
+              style={[styles.emptyCta, { marginTop: 12 }]}
+            >
+              <View style={[styles.ctaButton, styles.joinButton, { borderColor: ACCENT_LIGHT }]}>
+                <Text style={[styles.ctaText, { color: ACCENT_LIGHT }]}>Join with Invite Code</Text>
+              </View>
+            </AnimatedPressable>
           </GlassCard>
         </View>
       ) : (
@@ -197,22 +259,37 @@ export default function GroupsScreen({ navigation }: any) {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={ACCENT}
+              colors={[ACCENT]}
+            />
+          }
         />
       )}
 
-      {/* Floating Create Button */}
+      {/* Floating Buttons */}
       {groups.length > 0 && (
         <View style={styles.fabContainer}>
-          <AnimatedPressable onPress={handlePressCreate} scaleValue={0.95}>
-            <LinearGradient
-              colors={[ACCENT, ACCENT_LIGHT]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.fab}
-            >
-              <Text style={styles.fabText}>+ New Group</Text>
-            </LinearGradient>
-          </AnimatedPressable>
+          <View style={styles.fabRow}>
+            <AnimatedPressable onPress={() => { setJoinCode(''); setShowJoinModal(true); }} scaleValue={0.95} style={styles.fabHalf}>
+              <View style={[styles.fabOutline, { borderColor: ACCENT_LIGHT }]}>
+                <Text style={[styles.fabText, { color: ACCENT_LIGHT }]}>Join Group</Text>
+              </View>
+            </AnimatedPressable>
+            <AnimatedPressable onPress={handlePressCreate} scaleValue={0.95} style={styles.fabHalf}>
+              <LinearGradient
+                colors={[ACCENT, ACCENT_LIGHT]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.fab}
+              >
+                <Text style={styles.fabText}>+ New Group</Text>
+              </LinearGradient>
+            </AnimatedPressable>
+          </View>
         </View>
       )}
 
@@ -240,14 +317,9 @@ export default function GroupsScreen({ navigation }: any) {
               <AnimatedPressable
                 onPress={() => !creating && setShowCreateModal(false)}
                 scaleValue={0.9}
+                style={styles.modalCancelButton}
               >
-                <BlurView
-                  intensity={30}
-                  tint={isDark ? 'dark' : 'light'}
-                  style={styles.modalCancelButton}
-                >
-                  <Text style={[styles.modalCancelText, { color: colors.text }]}>Cancel</Text>
-                </BlurView>
+                <Text style={styles.modalCancelText}>Cancel</Text>
               </AnimatedPressable>
             </View>
 
@@ -264,11 +336,38 @@ export default function GroupsScreen({ navigation }: any) {
                 autoFocus
               />
 
+              <View style={{ marginTop: 12 }}>
+                <GlassInput
+                  label="Description (optional)"
+                  isDark={isDark}
+                  textColor={colors.text}
+                  labelColor={colors.textSecondary}
+                  placeholderColor={colors.textSecondary}
+                  placeholder="e.g. Shared expenses for our trip"
+                  value={newGroupDescription}
+                  onChangeText={setNewGroupDescription}
+                />
+              </View>
+
+              <View style={{ marginTop: 12 }}>
+                <GlassInput
+                  label="Base Currency"
+                  isDark={isDark}
+                  textColor={colors.text}
+                  labelColor={colors.textSecondary}
+                  placeholderColor={colors.textSecondary}
+                  placeholder="USD"
+                  value={newGroupCurrency}
+                  onChangeText={setNewGroupCurrency}
+                  autoCapitalize="characters"
+                />
+              </View>
+
               <AnimatedPressable
                 onPress={handleCreateGroup}
                 disabled={creating}
                 scaleValue={0.97}
-                style={{ marginTop: 8 }}
+                style={{ marginTop: 16 }}
               >
                 <LinearGradient
                   colors={[ACCENT, ACCENT_LIGHT]}
@@ -279,7 +378,75 @@ export default function GroupsScreen({ navigation }: any) {
                   {creating ? (
                     <ActivityIndicator color="#FFFFFF" />
                   ) : (
-                    <Text style={styles.saveButtonText}>Save</Text>
+                    <Text style={styles.saveButtonText}>Create Group</Text>
+                  )}
+                </LinearGradient>
+              </AnimatedPressable>
+            </View>
+          </BlurView>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Join Group Modal */}
+      <Modal
+        visible={showJoinModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => !joining && setShowJoinModal(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <BlurView
+            intensity={isDark ? 80 : 50}
+            tint={isDark ? 'dark' : 'light'}
+            style={[
+              styles.modalContent,
+              { backgroundColor: isDark ? 'rgba(20,10,40,0.9)' : 'rgba(255,255,255,0.9)' },
+            ]}
+          >
+            <View style={[styles.modalHeader, { borderBottomColor: GLASS.borderColor }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Join Group</Text>
+              <AnimatedPressable
+                onPress={() => !joining && setShowJoinModal(false)}
+                scaleValue={0.9}
+                style={styles.modalCancelButton}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </AnimatedPressable>
+            </View>
+
+            <View style={styles.modalBody}>
+              <GlassInput
+                label="Invite Code"
+                isDark={isDark}
+                textColor={colors.text}
+                labelColor={colors.textSecondary}
+                placeholderColor={colors.textSecondary}
+                placeholder="Enter 6-character code"
+                value={joinCode}
+                onChangeText={setJoinCode}
+                autoCapitalize="characters"
+                autoFocus
+              />
+
+              <AnimatedPressable
+                onPress={handleJoinGroup}
+                disabled={joining}
+                scaleValue={0.97}
+                style={{ marginTop: 16 }}
+              >
+                <LinearGradient
+                  colors={[ACCENT, ACCENT_LIGHT]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={[styles.saveButton, joining && { opacity: 0.6 }]}
+                >
+                  {joining ? (
+                    <ActivityIndicator color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>Join Group</Text>
                   )}
                 </LinearGradient>
               </AnimatedPressable>
@@ -353,9 +520,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
   },
+  joinButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1.5,
+  },
   listContent: {
     padding: 16,
-    paddingBottom: 120,
+    paddingBottom: 140,
   },
   groupItemWrapper: {
     marginBottom: 12,
@@ -373,6 +544,10 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '600',
   },
+  groupDescription: {
+    fontSize: 13,
+    marginTop: 2,
+  },
   groupMeta: {
     fontSize: 13,
     marginTop: 4,
@@ -388,14 +563,28 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
   },
+  fabRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  fabHalf: {
+    flex: 1,
+  },
   fab: {
     borderRadius: GLASS.borderRadius,
     paddingVertical: 16,
     alignItems: 'center',
   },
+  fabOutline: {
+    borderRadius: GLASS.borderRadius,
+    paddingVertical: 16,
+    alignItems: 'center',
+    borderWidth: 1.5,
+    backgroundColor: 'rgba(106, 13, 173, 0.1)',
+  },
   fabText: {
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '700',
   },
 
@@ -426,16 +615,13 @@ const styles = StyleSheet.create({
     letterSpacing: -0.3,
   },
   modalCancelButton: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: GLASS.borderColor,
-    overflow: 'hidden',
   },
   modalCancelText: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 16,
+    fontWeight: '400',
+    color: ACCENT_LIGHT,
   },
   modalBody: {
     padding: 20,

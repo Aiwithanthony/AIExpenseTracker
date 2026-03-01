@@ -44,7 +44,7 @@ export class Challenge {
   })
   status: ChallengeStatus;
 
-  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  @Column('decimal', { precision: 18, scale: 2, nullable: true })
   targetAmount: number;
 
   @Column('date')
@@ -53,7 +53,7 @@ export class Challenge {
   @Column('date')
   endDate: Date;
 
-  @Column('decimal', { precision: 10, scale: 2, default: 0 })
+  @Column('decimal', { precision: 18, scale: 2, default: 0 })
   currentProgress: number;
 
   @Column({ nullable: true })

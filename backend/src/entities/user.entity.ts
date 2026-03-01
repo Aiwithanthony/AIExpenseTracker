@@ -74,7 +74,7 @@ export class User {
   @OneToOne(() => Subscription, (subscription) => subscription.user)
   subscription: Subscription;
 
-  @OneToMany(() => ExpenseGroup, (group) => group.createdBy)
+  @OneToMany(() => ExpenseGroup, (group) => group.creator)
   createdGroups: ExpenseGroup[];
 }
 

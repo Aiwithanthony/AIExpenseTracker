@@ -75,23 +75,95 @@ export interface ReceiptData {
   }>;
 }
 
-export interface GroupExpense {
+// --- Group Expense Splitting Types ---
+
+export enum SplitType {
+  EQUAL = 'equal',
+  EXACT = 'exact',
+  PERCENTAGE = 'percentage',
+}
+
+export interface GroupMember {
   id: string;
   groupId: string;
-  expenseId: string;
   userId: string;
-  amount: number;
-  currency: string;
-  description: string;
-  date: Date;
+  role: string; // 'admin' | 'member'
+  joinedAt: Date;
+  user?: User;
 }
 
 export interface ExpenseGroup {
   id: string;
   name: string;
+  description?: string;
+  baseCurrency: string;
+  inviteCode: string;
   createdBy: string;
-  members: string[]; // User IDs
+  members: GroupMember[];
   createdAt: Date;
+  updatedAt: Date;
+  creator?: User;
+}
+
+export interface GroupExpense {
+  id: string;
+  groupId: string;
+  paidBy: string;
+  amount: number;
+  currency: string;
+  description: string;
+  date: Date;
+  splitType: SplitType;
+  splits: GroupExpenseSplit[];
+  payer?: User;
+  createdAt: Date;
+}
+
+export interface GroupExpenseSplit {
+  id: string;
+  groupExpenseId: string;
+  userId: string;
+  amount: number;
+  user?: User;
+}
+
+export interface GroupSettlement {
+  id: string;
+  groupId: string;
+  fromUserId: string;
+  toUserId: string;
+  amount: number;
+  currency: string;
+  note?: string;
+  createdAt: Date;
+  fromUser?: User;
+  toUser?: User;
+}
+
+export interface GroupInvite {
+  id: string;
+  groupId: string;
+  email: string;
+  token: string;
+  invitedBy: string;
+  expiresAt: Date;
+  acceptedAt?: Date;
+  createdAt: Date;
+}
+
+export interface SimplifiedDebt {
+  fromUserId: string;
+  fromUserName: string;
+  toUserId: string;
+  toUserName: string;
+  amount: number;
+  currency: string;
+}
+
+export interface GroupBalance {
+  userId: string;
+  userName: string;
+  balance: number; // positive = owed by group, negative = owes group
 }
 
 export interface Subscription {
@@ -123,4 +195,3 @@ export interface ExpenseStats {
   byDate: Record<string, number>;
   averagePerDay: number;
 }
-

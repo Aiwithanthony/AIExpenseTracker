@@ -31,13 +31,13 @@ export class Expense {
   @Column()
   userId: string;
 
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 18, scale: 2 })
   amount: number;
 
   @Column()
   currency: string;
 
-  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  @Column('decimal', { precision: 18, scale: 2, nullable: true })
   convertedAmount: number; // Amount in user's default currency
 
   @Column({ nullable: true })

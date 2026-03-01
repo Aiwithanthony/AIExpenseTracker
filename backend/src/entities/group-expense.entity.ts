@@ -6,9 +6,17 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  OneToMany,
 } from 'typeorm';
 import { ExpenseGroup } from './expense-group.entity';
-import { Expense } from './expense.entity';
+import { User } from './user.entity';
+import { GroupExpenseSplit } from './group-expense-split.entity';
+
+export enum SplitType {
+  EQUAL = 'equal',
+  EXACT = 'exact',
+  PERCENTAGE = 'percentage',
+}
 
 @Entity('group_expenses')
 export class GroupExpense {
@@ -19,12 +27,9 @@ export class GroupExpense {
   groupId: string;
 
   @Column()
-  expenseId: string;
+  paidBy: string;
 
-  @Column()
-  userId: string; // Who paid
-
-  @Column('decimal', { precision: 10, scale: 2 })
+  @Column('decimal', { precision: 18, scale: 2 })
   amount: number;
 
   @Column()
@@ -36,6 +41,9 @@ export class GroupExpense {
   @Column('date')
   date: Date;
 
+  @Column({ type: 'varchar', default: SplitType.EQUAL })
+  splitType: SplitType;
+
   @CreateDateColumn()
   createdAt: Date;
 
@@ -43,12 +51,14 @@ export class GroupExpense {
   updatedAt: Date;
 
   // Relations
-  @ManyToOne(() => ExpenseGroup, (group) => group.expenses)
+  @ManyToOne(() => ExpenseGroup, (group) => group.expenses, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'groupId' })
   group: ExpenseGroup;
 
-  @ManyToOne(() => Expense)
-  @JoinColumn({ name: 'expenseId' })
-  expense: Expense;
-}
+  @ManyToOne(() => User)
+  @JoinColumn({ name: 'paidBy' })
+  payer: User;
 
+  @OneToMany(() => GroupExpenseSplit, (split) => split.groupExpense, { cascade: true })
+  splits: GroupExpenseSplit[];
+}
