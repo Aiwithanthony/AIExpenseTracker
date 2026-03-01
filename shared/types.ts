@@ -195,3 +195,14 @@ export interface ExpenseStats {
   byDate: Record<string, number>;
   averagePerDay: number;
 }
+
+export interface LocationRule {
+  id: string;
+  locationType: string;
+  latitude: number;
+  longitude: number;
+  radius: number;
+  minTimeSpent: number;
+  name?: string;
+  isActive: boolean;
+}

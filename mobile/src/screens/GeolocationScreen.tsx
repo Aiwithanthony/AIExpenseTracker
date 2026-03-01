@@ -29,6 +29,7 @@ import {
 import GlassCard from '../components/GlassCard';
 import AnimatedPressable from '../components/AnimatedPressable';
 import GlassInput from '../components/GlassInput';
+import { LocationRule } from '../../../shared/types';
 
 const GLASS = {
   borderColor: 'rgba(255, 255, 255, 0.2)',
@@ -41,17 +42,6 @@ const GLASS = {
 };
 const ACCENT = '#6A0DAD';
 const ACCENT_LIGHT = '#8B2FC9';
-
-interface LocationRule {
-  id: string;
-  locationType: string;
-  latitude: number;
-  longitude: number;
-  radius: number;
-  minDuration: number;
-  name?: string;
-  isActive: boolean;
-}
 
 export default function GeolocationScreen({ navigation }: any) {
   const { colors, isDark } = useTheme();
@@ -334,7 +324,7 @@ export default function GeolocationScreen({ navigation }: any) {
                     Type: {locationTypes.find(t => t.value === rule.locationType)?.label || rule.locationType}
                   </Text>
                   <Text style={[styles.ruleDetails, { color: secondaryTextColor }]}>
-                    Radius: {rule.radius}m {'\u2022'} Min Duration: {(rule as any).minTimeSpent || rule.minDuration || 0}min
+                    Radius: {rule.radius}m {'\u2022'} Min Duration: {rule.minTimeSpent || 0}min
                   </Text>
                   <Text style={[styles.ruleDetails, { color: secondaryTextColor }]}>
                     Location: {rule.latitude.toFixed(4)}, {rule.longitude.toFixed(4)}

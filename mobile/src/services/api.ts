@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Expense, LocationRule } from '../../../shared/types';
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://172.20.10.8:3000';
 
@@ -194,7 +195,7 @@ class ApiService {
   }
 
   async getExpense(id: string) {
-    return this.request(`/expenses/${id}`);
+    return this.request<Expense>(`/expenses/${id}`);
   }
 
   async updateExpense(id: string, expense: any) {
@@ -618,7 +619,7 @@ class ApiService {
   }
 
   async getLocationRules() {
-    return this.request('/geolocation/rules');
+    return this.request<LocationRule[]>('/geolocation/rules');
   }
 
   // Groups

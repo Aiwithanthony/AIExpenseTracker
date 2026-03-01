@@ -2,6 +2,19 @@
 
 ## Session Changes (Latest First)
 
+### 36. Fix 11 pre-existing TypeScript errors across 3 files
+**Files:**
+- `shared/types.ts` — Added `LocationRule` interface (with `minTimeSpent` matching backend field name)
+- `mobile/src/services/api.ts` — Added `<Expense>` type param to `getExpense()`, `<LocationRule[]>` to `getLocationRules()`, imported types from `shared/types`
+- `mobile/src/services/locationTracking.ts` — Added missing `shouldShowBanner` and `shouldShowList` properties to notification handler (required by updated `expo-notifications`)
+- `mobile/src/screens/GeolocationScreen.tsx` — Imported `LocationRule` from `shared/types`, removed duplicate local interface, fixed `minDuration` → `minTimeSpent` reference
+
+**Root causes:**
+1. Untyped API methods (`getExpense`, `getLocationRules`) returning `unknown` due to missing generic type parameter on `this.request()`
+2. `expo-notifications` `NotificationBehavior` interface added required `shouldShowBanner` and `shouldShowList` properties
+
+**Result:** Mobile `npx tsc --noEmit` now reports 0 errors (was 11)
+
 ### 35. InviteMembersScreen — New screen for managing group members and invites
 **File:** `mobile/src/screens/InviteMembersScreen.tsx`
 - Current members list with role badges (Admin/Member) and remove button (admin-only)
