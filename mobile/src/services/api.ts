@@ -1,40 +1,140 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Expense, LocationRule } from '../../../shared/types';
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://172.20.10.8:3000';
+// The backend URL comes from EXPO_PUBLIC_API_URL (set in mobile/.env to your
+// machine's LAN IP for device testing, e.g. http://192.168.1.20:3000). The
+// localhost fallback only works on the iOS simulator / web; a physical device
+// must have EXPO_PUBLIC_API_URL set.
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000';
+
+if (!process.env.EXPO_PUBLIC_API_URL && __DEV__) {
+  console.warn(
+    '[api] EXPO_PUBLIC_API_URL is not set — falling back to http://localhost:3000. ' +
+      'Set it in mobile/.env to your machine LAN IP to test on a real device.',
+  );
+}
+
+// ── Connectivity signal ─────────────────────────────────────────────────────
+// Flips offline on timeout/network failures and back online on any HTTP
+// response. Screens subscribe via the useOffline hook to show an inline
+// "Offline" pill instead of failing silently.
+type OfflineListener = (offline: boolean) => void;
+let isOffline = false;
+const offlineListeners = new Set<OfflineListener>();
+
+function setOffline(next: boolean): void {
+  if (isOffline === next) return;
+  isOffline = next;
+  offlineListeners.forEach((listener) => listener(next));
+}
+
+/** Subscribe to connectivity changes; fires immediately with current state. */
+export function subscribeOffline(listener: OfflineListener): () => void {
+  offlineListeners.add(listener);
+  listener(isOffline);
+  return () => {
+    offlineListeners.delete(listener);
+  };
+}
 
 class ApiService {
+  /** Prevents concurrent refresh loops */
+  private isRefreshing = false;
+
   private async getToken(): Promise<string | null> {
     return AsyncStorage.getItem('auth_token');
   }
 
+  /**
+   * Attempt to use the stored refresh token to obtain a new access token.
+   * Returns true if successful; clears all auth storage on failure.
+   */
+  private async tryRefreshToken(): Promise<boolean> {
+    if (this.isRefreshing) return false;
+    this.isRefreshing = true;
+
+    try {
+      const refreshToken = await AsyncStorage.getItem('refresh_token');
+      if (!refreshToken) return false;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
+      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        await AsyncStorage.multiRemove(['auth_token', 'refresh_token', 'user']);
+        return false;
+      }
+
+      const data = await response.json();
+      await AsyncStorage.setItem('auth_token', data.access_token);
+      if (data.refresh_token) {
+        await AsyncStorage.setItem('refresh_token', data.refresh_token);
+      }
+      return true;
+    } catch {
+      await AsyncStorage.multiRemove(['auth_token', 'refresh_token', 'user']);
+      return false;
+    } finally {
+      this.isRefreshing = false;
+    }
+  }
+
   private async request<T>(
     endpoint: string,
-    options: RequestInit = {},
+    options: RequestInit & { timeoutMs?: number } = {},
+    skipRefreshRetry = false,
   ): Promise<T> {
     const token = await this.getToken();
+    const { timeoutMs = 15000, ...fetchOptions } = options;
     const isFormData =
-      typeof FormData !== 'undefined' && options.body instanceof FormData;
-    
-    // Add timeout using AbortController
+      typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData;
+
+    // Add timeout using AbortController. Mutations pass a shorter timeoutMs so
+    // a dead connection fails fast instead of hanging the form for 15s.
     const controller = new AbortController();
     const timeoutId = setTimeout(() => {
       controller.abort();
-    }, 15000); // 15 second timeout
+    }, timeoutMs);
 
     try {
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        ...options,
+        ...fetchOptions,
         signal: controller.signal,
         headers: {
           // Only set JSON content-type if not sending multipart FormData.
           ...(!isFormData && { 'Content-Type': 'application/json' }),
           ...(token && { Authorization: `Bearer ${token}` }),
-          ...options.headers,
+          ...fetchOptions.headers,
         },
       });
 
       clearTimeout(timeoutId);
+      // Any HTTP response (even an error status) means the server is reachable.
+      setOffline(false);
+
+      // Auto-refresh on 401 (expired access token), then retry once
+      if (
+        response.status === 401 &&
+        !skipRefreshRetry &&
+        endpoint !== '/auth/login' &&
+        endpoint !== '/auth/refresh'
+      ) {
+        const refreshed = await this.tryRefreshToken();
+        if (refreshed) {
+          return this.request<T>(endpoint, options, true);
+        }
+        // Refresh failed — throw so the UI can redirect to login
+        throw new Error('Session expired. Please log in again.');
+      }
 
       if (!response.ok) {
         const error = await response.json().catch(() => ({ message: response.statusText }));
@@ -78,51 +178,81 @@ class ApiService {
     } catch (error: any) {
       clearTimeout(timeoutId);
       
-      // Provide better error message for timeouts
+      // User-facing connectivity errors (no developer/internal instructions).
       if (error?.name === 'AbortError') {
-        throw new Error(`Request timed out. The backend server at ${API_BASE_URL} is not responding. Please ensure:\n1. The backend server is running (npm run start:dev in backend directory)\n2. The server is accessible at ${API_BASE_URL}\n3. Your firewall allows connections on port 3000`);
+        setOffline(true);
+        throw new Error('The request timed out. Please check your connection and try again.');
       }
-      
-      // Provide better error message for network errors
+
       if (error?.message?.includes('Network request failed') || error?.message?.includes('Failed to fetch')) {
-        throw new Error(`Cannot connect to backend server at ${API_BASE_URL}. Please ensure:\n1. The backend server is running\n2. The IP address is correct\n3. Your device and computer are on the same network`);
+        setOffline(true);
+        throw new Error('Could not reach the server. Please check your internet connection and try again.');
       }
-      
+
       throw error;
     }
   }
 
+  // ---------------------------------------------------------------------------
   // Auth
+  // ---------------------------------------------------------------------------
+
+  private async storeAuthResponse(response: { access_token: string; refresh_token?: string; user: any }) {
+    const ops: [string, string][] = [
+      ['auth_token', response.access_token],
+      ['user', JSON.stringify(response.user)],
+    ];
+    if (response.refresh_token) {
+      ops.push(['refresh_token', response.refresh_token]);
+    }
+    await AsyncStorage.multiSet(ops);
+  }
+
   async login(email: string, password: string) {
-    const response = await this.request<{ access_token: string; user: any }>('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ email, password }),
-    });
-    await AsyncStorage.setItem('auth_token', response.access_token);
-    await AsyncStorage.setItem('user', JSON.stringify(response.user));
+    const response = await this.request<{ access_token: string; refresh_token: string; user: any }>(
+      '/auth/login',
+      { method: 'POST', body: JSON.stringify({ email, password }) },
+    );
+    await this.storeAuthResponse(response);
     return response;
   }
 
   async register(email: string, password: string, name: string, phoneNumber?: string) {
-    const response = await this.request<{ access_token: string; user: any }>('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify({ email, password, name, phoneNumber }),
-    });
-    await AsyncStorage.setItem('auth_token', response.access_token);
-    await AsyncStorage.setItem('user', JSON.stringify(response.user));
+    const response = await this.request<{ access_token: string; refresh_token: string; user: any }>(
+      '/auth/register',
+      { method: 'POST', body: JSON.stringify({ email, password, name, phoneNumber }) },
+    );
+    await this.storeAuthResponse(response);
     return response;
   }
 
   async logout() {
-    await AsyncStorage.removeItem('auth_token');
-    await AsyncStorage.removeItem('user');
+    try {
+      const refreshToken = await AsyncStorage.getItem('refresh_token');
+      if (refreshToken) {
+        // Best-effort revocation — don't block logout if the network is down
+        await this.request('/auth/logout', {
+          method: 'POST',
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        }, true).catch(() => {});
+      }
+    } finally {
+      await AsyncStorage.multiRemove(['auth_token', 'refresh_token', 'user']);
+    }
   }
 
   async getCurrentUser() {
     return this.request('/auth/me');
   }
 
-  async updateProfile(data: { name?: string; currency?: string }) {
+  async changePassword(currentPassword: string, newPassword: string) {
+    return this.request('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    });
+  }
+
+  async updateProfile(data: { name?: string; currency?: string; whatsappNumber?: string }) {
     const response = await this.request<any>('/auth/profile', {
       method: 'PATCH',
       body: JSON.stringify(data),
@@ -138,12 +268,11 @@ class ApiService {
   }
 
   async googleLogin(idToken: string) {
-    const response = await this.request<{ access_token: string; user: any }>('/auth/google', {
-      method: 'POST',
-      body: JSON.stringify({ idToken }),
-    });
-    await AsyncStorage.setItem('auth_token', response.access_token);
-    await AsyncStorage.setItem('user', JSON.stringify(response.user));
+    const response = await this.request<{ access_token: string; refresh_token: string; user: any }>(
+      '/auth/google',
+      { method: 'POST', body: JSON.stringify({ idToken }) },
+    );
+    await this.storeAuthResponse(response);
     return response;
   }
 
@@ -153,12 +282,11 @@ class ApiService {
     email?: string;
     fullName?: string;
   }) {
-    const response = await this.request<{ access_token: string; user: any }>('/auth/apple', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-    await AsyncStorage.setItem('auth_token', response.access_token);
-    await AsyncStorage.setItem('user', JSON.stringify(response.user));
+    const response = await this.request<{ access_token: string; refresh_token: string; user: any }>(
+      '/auth/apple',
+      { method: 'POST', body: JSON.stringify(data) },
+    );
+    await this.storeAuthResponse(response);
     return response;
   }
 
@@ -191,6 +319,7 @@ class ApiService {
     return this.request('/expenses', {
       method: 'POST',
       body: JSON.stringify(expense),
+      timeoutMs: 8000,
     });
   }
 
@@ -202,12 +331,14 @@ class ApiService {
     return this.request(`/expenses/${id}`, {
       method: 'PATCH',
       body: JSON.stringify(expense),
+      timeoutMs: 8000,
     });
   }
 
   async deleteExpense(id: string) {
     return this.request(`/expenses/${id}`, {
       method: 'DELETE',
+      timeoutMs: 8000,
     });
   }
 
@@ -376,12 +507,20 @@ class ApiService {
         body: JSON.stringify({ question }),
       });
     } catch (error: any) {
-      // Provide more helpful error message
       if (error.message?.includes('Cannot POST') || error.message?.includes('404')) {
-        throw new Error('Chat endpoint not found. Please make sure the backend is running and restarted.');
+        throw new Error('The assistant is unavailable right now. Please try again later.');
       }
       throw error;
     }
+  }
+
+  // Telegram
+  /** Generate a one-time code to link the user's Telegram account to the bot. */
+  async createTelegramLinkCode() {
+    return this.request<{ code: string; expiresAt: string; instructions: string }>(
+      '/telegram/link-code',
+      { method: 'POST' },
+    );
   }
 
   // Budgets
@@ -605,6 +744,7 @@ class ApiService {
   }
 
   async createLocationRule(rule: {
+    name?: string;
     locationType: string;
     latitude: number;
     longitude: number;
@@ -620,6 +760,30 @@ class ApiService {
 
   async getLocationRules() {
     return this.request<LocationRule[]>('/geolocation/rules');
+  }
+
+  async updateLocationRule(
+    id: string,
+    updates: Partial<{
+      name: string;
+      locationType: string;
+      latitude: number;
+      longitude: number;
+      radius: number;
+      minTimeSpent: number;
+      enabled: boolean;
+    }>,
+  ) {
+    return this.request(`/geolocation/rules/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(updates),
+    });
+  }
+
+  async deleteLocationRule(id: string) {
+    return this.request(`/geolocation/rules/${id}`, {
+      method: 'DELETE',
+    });
   }
 
   // Groups
@@ -726,10 +890,17 @@ class ApiService {
     });
   }
 
-  async createGroupInvite(groupId: string, email: string) {
-    return this.request(`/groups/${groupId}/invites`, {
+  async createGroupInvite(groupId: string, email?: string) {
+    return this.request<{
+      id: string;
+      token: string;
+      deepLink: string;
+      webLink?: string;
+      email?: string;
+      expiresAt: string;
+    }>(`/groups/${groupId}/invites`, {
       method: 'POST',
-      body: JSON.stringify({ email }),
+      body: JSON.stringify(email ? { email } : {}),
     });
   }
 
@@ -744,9 +915,44 @@ class ApiService {
     return this.request(`/groups/search-users?q=${encodeURIComponent(query)}`);
   }
 
+  // Group Comments
+  async getExpenseComments(groupId: string, expenseId: string) {
+    return this.request(`/groups/${groupId}/expenses/${expenseId}/comments`);
+  }
+
+  async addExpenseComment(groupId: string, expenseId: string, text: string) {
+    return this.request(`/groups/${groupId}/expenses/${expenseId}/comments`, {
+      method: 'POST',
+      body: JSON.stringify({ text }),
+    });
+  }
+
+  async deleteExpenseComment(groupId: string, expenseId: string, commentId: string) {
+    return this.request(`/groups/${groupId}/expenses/${expenseId}/comments/${commentId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  // Group Activity Feed
+  async getGroupActivity(groupId: string) {
+    return this.request(`/groups/${groupId}/activity`);
+  }
+
+  // Group Analytics
+  async getGroupAnalytics(groupId: string) {
+    return this.request(`/groups/${groupId}/analytics`);
+  }
+
   // Subscriptions
   async getSubscriptionStatus() {
     return this.request<{ hasActiveSubscription: boolean; tier: string; expiresAt: string | null }>('/subscriptions/status');
+  }
+
+  /** Start a Stripe hosted Checkout for premium; returns a URL to open in a browser. */
+  async createStripeCheckout() {
+    return this.request<{ url: string }>('/payments/stripe/checkout', {
+      method: 'POST',
+    });
   }
 
   async cancelSubscription() {

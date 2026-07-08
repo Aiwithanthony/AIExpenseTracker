@@ -70,7 +70,7 @@ async function checkLocationRules(
     const rules = await api.getLocationRules();
     
     for (const rule of rules) {
-      if (!rule.isActive) continue;
+      if (!rule.enabled) continue;
 
       const distance = calculateDistance(
         rule.latitude,
@@ -292,9 +292,18 @@ export async function startBackgroundLocationTracking(): Promise<boolean> {
       return false;
     }
 
-    const { status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync();
+    // Background permission needs a development build; in Expo Go this throws
+    // (missing Info.plist "Always" key). Treat a throw as "unavailable" so the
+    // caller can fall back to foreground tracking instead of crashing.
+    let backgroundStatus: string;
+    try {
+      ({ status: backgroundStatus } = await Location.requestBackgroundPermissionsAsync());
+    } catch {
+      console.warn('Background location unavailable (needs a development build); falling back to foreground.');
+      return false;
+    }
     if (backgroundStatus !== 'granted') {
-      console.error('Background location permission not granted');
+      console.warn('Background location permission not granted');
       return false;
     }
 

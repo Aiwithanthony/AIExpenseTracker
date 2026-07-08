@@ -17,6 +17,7 @@ import { FileUploadService } from './file-upload.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { User } from '../entities/user.entity';
+import { toLlmHttpError } from '../common/utils/llm-error';
 
 export class ProcessReceiptDto {
   @IsString()
@@ -107,12 +108,16 @@ export class ReceiptsController {
     @CurrentUser() user: User,
     @Body() dto: ProcessReceiptDto,
   ) {
-    return this.receiptsService.processReceipt(
-      user.id,
-      dto.ocrText,
-      dto.imageUrl || dto.imageBase64 || '',
-      user.currency,
-    );
+    try {
+      return await this.receiptsService.processReceipt(
+        user.id,
+        dto.ocrText,
+        dto.imageUrl || dto.imageBase64 || '',
+        user.currency,
+      );
+    } catch (error) {
+      throw toLlmHttpError(error);
+    }
   }
 
   @Post('extract-text')
@@ -121,8 +126,12 @@ export class ReceiptsController {
     if (!imageInput) {
       throw new BadRequestException('Either imageUrl or imageBase64 is required');
     }
-    const text = await this.receiptsService.extractTextFromImage(imageInput);
-    return { text };
+    try {
+      const text = await this.receiptsService.extractTextFromImage(imageInput);
+      return { text };
+    } catch (error) {
+      throw toLlmHttpError(error);
+    }
   }
 
   /**
@@ -206,7 +215,8 @@ export class ReceiptsController {
       if (existsSync(file.path)) {
         fs.unlinkSync(file.path);
       }
-      throw error;
+      // Preserves the BadRequestException above; maps AI-provider errors to a clear message.
+      throw toLlmHttpError(error);
     }
   }
 }

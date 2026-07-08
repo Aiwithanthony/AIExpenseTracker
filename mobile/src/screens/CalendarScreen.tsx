@@ -1,17 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   FlatList,
   ActivityIndicator,
   Dimensions,
   Platform,
 } from 'react-native';
+import { Text } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { CalendarBlank, Wallet } from 'phosphor-react-native';
+import CategoryIcon from '../components/CategoryIcon';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
@@ -23,15 +23,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CELL_SIZE = Math.floor((SCREEN_WIDTH - 64) / 7);
 const CELL_INNER = CELL_SIZE - 4; // subtract 2px padding on each side
 
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  bgMedium: 'rgba(255, 255, 255, 0.12)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
+const BENTO_RADIUS = 18;
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -259,7 +251,7 @@ export default function CalendarScreen({ navigation }: any) {
 
     let dotColor: string;
     if (hasIncome && hasExpense) {
-      dotColor = ACCENT_LIGHT; // mixed
+      dotColor = colors.primary; // mixed
     } else if (hasIncome) {
       dotColor = colors.success;
     } else {
@@ -295,12 +287,7 @@ export default function CalendarScreen({ navigation }: any) {
         style={styles.dayCellPressable}
       >
         {isSelected ? (
-          <LinearGradient
-            colors={[ACCENT_LIGHT, ACCENT]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.dayCellInner}
-          >
+          <View style={[styles.dayCellInner, { backgroundColor: colors.primary, borderRadius: 10 }]}>
             <Text style={[styles.dayNumber, styles.dayNumberSelected]}>{cell.day}</Text>
             {hasTransactions && <DotIndicator summary={summary!} />}
             {hasTransactions && (
@@ -308,12 +295,12 @@ export default function CalendarScreen({ navigation }: any) {
                 {net >= 0 ? '+' : ''}{Math.abs(net) >= 1000 ? `${(net / 1000).toFixed(1)}k` : net.toFixed(0)}
               </Text>
             )}
-          </LinearGradient>
+          </View>
         ) : (
           <View
             style={[
               styles.dayCellInner,
-              isToday && styles.dayCellToday,
+              isToday && [styles.dayCellToday, { borderColor: colors.primary }],
               hasTransactions && cell.isCurrentMonth && styles.dayCellWithData,
             ]}
           >
@@ -322,7 +309,7 @@ export default function CalendarScreen({ navigation }: any) {
                 styles.dayNumber,
                 { color: cell.isCurrentMonth ? colors.text : colors.textSecondary },
                 !cell.isCurrentMonth && styles.dayNumberMuted,
-                isToday && styles.dayNumberToday,
+                isToday && [styles.dayNumberToday, { color: colors.primary }],
               ]}
             >
               {cell.day}
@@ -352,19 +339,21 @@ export default function CalendarScreen({ navigation }: any) {
 
     return (
       <AnimatedPressable
-        onPress={() => navigation.navigate('EditExpense', { expenseId: expense.id })}
+        onPress={() => navigation.navigate('EditExpense', { expenseId: expense.id, expense })}
         scaleValue={0.98}
         style={styles.txPressable}
       >
-        <BlurView
-          intensity={40}
-          tint={isDark ? 'dark' : 'light'}
-          style={styles.txCard}
+        <View
+          style={[styles.txCard, { backgroundColor: colors.card }]}
         >
           {/* Left: category icon placeholder + details */}
           <View style={styles.txLeft}>
-            <View style={[styles.txCategoryBadge, { backgroundColor: isIncome ? 'rgba(52,199,89,0.15)' : 'rgba(255,59,48,0.15)' }]}>
-              <Text style={styles.txCategoryIcon}>{isIncome ? '\u2191' : '\u2193'}</Text>
+            <View style={[styles.txCategoryBadge, { backgroundColor: isIncome ? `${colors.success}26` : `${colors.error}26` }]}>
+              {isIncome ? (
+                <Wallet size={18} color={colors.success} weight="duotone" />
+              ) : (
+                <CategoryIcon name={expense.category?.name} size={18} color={colors.error} />
+              )}
             </View>
             <View style={styles.txDetails}>
               <Text style={[styles.txDescription, { color: colors.text }]} numberOfLines={1}>
@@ -394,7 +383,7 @@ export default function CalendarScreen({ navigation }: any) {
               {formatTime(expense.date)}
             </Text>
           </View>
-        </BlurView>
+        </View>
       </AnimatedPressable>
     );
   };
@@ -421,7 +410,7 @@ export default function CalendarScreen({ navigation }: any) {
           {/* Day grid */}
           {loading ? (
             <View style={styles.gridLoading}>
-              <ActivityIndicator size="small" color={ACCENT} />
+              <ActivityIndicator size="small" color={colors.primary} />
             </View>
           ) : (
             <View style={styles.dayGrid}>
@@ -458,7 +447,9 @@ export default function CalendarScreen({ navigation }: any) {
   const EmptyList = () => (
     <Animated.View entering={FadeInDown.duration(300).delay(250)} style={styles.emptyWrapper}>
       <GlassCard style={styles.emptyCard} tint={isDark ? 'dark' : 'light'}>
-        <Text style={styles.emptyEmoji}>{'\uD83D\uDCC5'}</Text>
+        <View style={styles.emptyEmoji}>
+          <CalendarBlank size={44} color={colors.textTertiary} weight="duotone" />
+        </View>
         <Text style={[styles.emptyTitle, { color: colors.text }]}>No transactions on this date</Text>
         <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
           Tap + on the Home tab to add one.
@@ -468,31 +459,26 @@ export default function CalendarScreen({ navigation }: any) {
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? '#0D0D0D' : colors.background }]}>
-      {/* Month header with navigation arrows – SafeAreaView keeps it below the status bar */}
-      <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
-        <LinearGradient
-          colors={['#1A0030', '#2D004F', ACCENT]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.header}
-        >
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
+      {/* Month header */}
+      <SafeAreaView edges={['top']} style={{ backgroundColor: colors.background }}>
+        <View style={styles.header}>
           <AnimatedPressable onPress={() => navigateMonth(-1)} style={styles.arrowWrapper}>
-            <BlurView intensity={GLASS.blurIntensity} tint={isDark ? 'dark' : 'light'} style={styles.arrowCircle}>
-              <Text style={styles.arrowText}>{'\u2039'}</Text>
-            </BlurView>
+            <View style={[styles.arrowCircle, { backgroundColor: colors.inputBg }]}>
+              <Text style={[styles.arrowText, { color: colors.text }]}>{'\u2039'}</Text>
+            </View>
           </AnimatedPressable>
 
-          <Text style={styles.monthTitle}>
+          <Text style={[styles.monthTitle, { color: colors.text }]}>
             {MONTH_NAMES[viewMonth]} {viewYear}
           </Text>
 
           <AnimatedPressable onPress={() => navigateMonth(1)} style={styles.arrowWrapper}>
-            <BlurView intensity={GLASS.blurIntensity} tint={isDark ? 'dark' : 'light'} style={styles.arrowCircle}>
-              <Text style={styles.arrowText}>{'\u203A'}</Text>
-            </BlurView>
+            <View style={[styles.arrowCircle, { backgroundColor: colors.inputBg }]}>
+              <Text style={[styles.arrowText, { color: colors.text }]}>{'\u203A'}</Text>
+            </View>
           </AnimatedPressable>
-        </LinearGradient>
+        </View>
       </SafeAreaView>
 
       {/* Transactions list (with calendar grid as list header) */}
@@ -523,37 +509,30 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
+    paddingVertical: 12,
     paddingHorizontal: 20,
-    borderBottomLeftRadius: GLASS.borderRadius,
-    borderBottomRightRadius: GLASS.borderRadius,
   },
   arrowWrapper: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     overflow: 'hidden',
   },
   arrowCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    overflow: 'hidden',
   },
   arrowText: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: '700',
-    color: '#FFFFFF',
   },
   monthTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
+    letterSpacing: -0.3,
   },
 
   /* ── Calendar card ───────────────────────────────────────────────────────── */
@@ -568,7 +547,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginBottom: 6,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255,255,255,0.1)',
+    borderBottomColor: 'rgba(128,128,128,0.15)',
     paddingBottom: 8,
   },
   weekDayCell: {
@@ -608,10 +587,9 @@ const styles = StyleSheet.create({
   },
   dayCellToday: {
     borderWidth: 1.5,
-    borderColor: ACCENT_LIGHT,
   },
   dayCellWithData: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: 'rgba(128,128,128,0.08)',
   },
 
   dayNumber: {
@@ -626,7 +604,6 @@ const styles = StyleSheet.create({
     opacity: 0.35,
   },
   dayNumberToday: {
-    color: ACCENT_LIGHT,
     fontWeight: '800',
   },
 
@@ -682,9 +659,15 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 14,
     borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
+      android: { elevation: 2 },
+    }),
   },
   txLeft: {
     flexDirection: 'row',

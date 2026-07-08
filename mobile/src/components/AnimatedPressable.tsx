@@ -1,9 +1,10 @@
-import React from 'react';
-import { Pressable, StyleProp, ViewStyle } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { AccessibilityInfo, Pressable, StyleProp, ViewStyle } from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
-  withSpring,
+  withTiming,
+  Easing,
 } from 'react-native-reanimated';
 
 interface AnimatedPressableProps {
@@ -18,11 +19,13 @@ interface AnimatedPressableProps {
   disabled?: boolean;
 }
 
-const SPRING_CONFIG = {
-  damping: 15,
-  stiffness: 150,
-  mass: 0.5,
-};
+// Exponential ease-out (quart) — natural deceleration, no bounce
+const EASE_OUT = Easing.bezier(0.25, 1, 0.5, 1);
+const PRESS_DURATION = 100;   // Fast response on press-in
+const RELEASE_DURATION = 300; // Smooth deceleration on release
+
+let reduceMotionEnabled = false;
+AccessibilityInfo.isReduceMotionEnabled().then((v) => { reduceMotionEnabled = v; });
 
 const AnimatedPressable: React.FC<AnimatedPressableProps> = ({
   children,
@@ -42,13 +45,21 @@ const AnimatedPressable: React.FC<AnimatedPressableProps> = ({
   }));
 
   const handlePressIn = () => {
-    scale.value = withSpring(scaleValue, SPRING_CONFIG);
-    opacity.value = withSpring(pressedOpacity, SPRING_CONFIG);
+    if (reduceMotionEnabled) {
+      opacity.value = withTiming(pressedOpacity, { duration: 50 });
+      return;
+    }
+    scale.value = withTiming(scaleValue, { duration: PRESS_DURATION, easing: EASE_OUT });
+    opacity.value = withTiming(pressedOpacity, { duration: PRESS_DURATION, easing: EASE_OUT });
   };
 
   const handlePressOut = () => {
-    scale.value = withSpring(1, SPRING_CONFIG);
-    opacity.value = withSpring(1, SPRING_CONFIG);
+    if (reduceMotionEnabled) {
+      opacity.value = withTiming(1, { duration: 100 });
+      return;
+    }
+    scale.value = withTiming(1, { duration: RELEASE_DURATION, easing: EASE_OUT });
+    opacity.value = withTiming(1, { duration: RELEASE_DURATION, easing: EASE_OUT });
   };
 
   return (
@@ -60,6 +71,7 @@ const AnimatedPressable: React.FC<AnimatedPressableProps> = ({
         onPressOut={disabled ? undefined : handlePressOut}
         disabled={disabled}
         style={{ flex: style ? undefined : 1 }}
+        hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
       >
         {children}
       </Pressable>

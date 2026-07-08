@@ -1,11 +1,13 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, useWindowDimensions } from 'react-native';
+import { View, StyleSheet, ScrollView, useWindowDimensions } from 'react-native';
+import { Text } from './AppText';
 import Animated, {
   useAnimatedScrollHandler,
   useSharedValue,
   useAnimatedStyle,
   interpolate,
 } from 'react-native-reanimated';
+import { useTheme } from '../context/ThemeContext';
 
 const HEADER_HEIGHT = 250;
 
@@ -15,6 +17,7 @@ interface ParallaxScrollViewProps {
 }
 
 const ParallaxScrollView: React.FC<ParallaxScrollViewProps> = ({ children, headerContent }) => {
+  const { colors } = useTheme();
   const scrollY = useSharedValue(0);
   const { height: windowHeight } = useWindowDimensions();
 
@@ -36,7 +39,7 @@ const ParallaxScrollView: React.FC<ParallaxScrollViewProps> = ({ children, heade
 
   return (
     <View style={styles.container}>
-      <Animated.View style={[styles.header, headerAnimatedStyle]}>
+      <Animated.View style={[styles.header, headerAnimatedStyle, { backgroundColor: colors.primary }]}>
         {headerContent}
       </Animated.View>
       <Animated.ScrollView
@@ -61,7 +64,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#6A0DAD', // Your accent color
     overflow: 'hidden',
   },
   scrollView: {

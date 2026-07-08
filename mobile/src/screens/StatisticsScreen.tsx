@@ -1,123 +1,96 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
   RefreshControl,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
-// SafeAreaView not needed - stack navigator handles safe area
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { FadeInDown, FadeIn } from 'react-native-reanimated';
+import { Text } from '../components/AppText';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../services/api';
-import GlassCard from '../components/GlassCard';
+import { useCachedFetch } from '../hooks/useCachedFetch';
 import AnimatedPressable from '../components/AnimatedPressable';
+import CategoryIcon from '../components/CategoryIcon';
+import { ChartBar, Warning } from 'phosphor-react-native';
 
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  borderColorStrong: 'rgba(255, 255, 255, 0.3)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  bgMedium: 'rgba(255, 255, 255, 0.12)',
-  bgDark: 'rgba(0, 0, 0, 0.2)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
+const BENTO_RADIUS = 18;
+
+
+function periodRange(period: 'week' | 'month' | 'year'): { start: string; end: string } {
+  const now = new Date();
+  let startDate: Date;
+  switch (period) {
+    case 'week':
+      startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      break;
+    case 'month':
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+    case 'year':
+      startDate = new Date(now.getFullYear(), 0, 1);
+      break;
+  }
+  return {
+    start: startDate.toISOString().split('T')[0],
+    end: now.toISOString().split('T')[0],
+  };
+}
 
 export default function StatisticsScreen({ navigation }: any) {
-  const { colors, isDark } = useTheme();
-  const [stats, setStats] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const { colors } = useTheme();
   const [period, setPeriod] = useState<'week' | 'month' | 'year'>('month');
 
-  useEffect(() => {
-    loadStats();
-  }, [period]);
+  const { data: stats, loading, refreshing, refresh } = useCachedFetch<any>(
+    `stats:${period}`,
+    () => {
+      const { start, end } = periodRange(period);
+      return api.getExpenseStats(start, end);
+    },
+  );
 
-  const loadStats = async () => {
-    try {
-      setLoading(true);
-      const now = new Date();
-      let startDate: Date;
-      let endDate = now;
+  const fmt = (v: number | undefined) => (v == null ? '0.00' : v.toFixed(2));
 
-      switch (period) {
-        case 'week':
-          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-          break;
-        case 'month':
-          startDate = new Date(now.getFullYear(), now.getMonth(), 1);
-          break;
-        case 'year':
-          startDate = new Date(now.getFullYear(), 0, 1);
-          break;
-      }
-
-      const data = await api.getExpenseStats(
-        startDate.toISOString().split('T')[0],
-        endDate.toISOString().split('T')[0],
-      );
-      setStats(data);
-    } catch (error) {
-      console.error('Error loading stats:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  };
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    loadStats();
-  };
+  const segmentColors = [colors.primary, colors.tintWarmText, colors.tintCoolText, colors.textTertiary];
+  const topCategories: Array<{ name: string; amount: number; percentage: number }> =
+    (stats?.topCategories || []).slice(0, 4);
+  const maxCatAmount = Math.max(...topCategories.map((c) => c.amount || 0), 1);
 
   const renderPeriodChip = (value: 'week' | 'month' | 'year', label: string) => {
     const isActive = period === value;
     return (
-      <AnimatedPressable onPress={() => setPeriod(value)} scaleValue={0.93}>
-        {isActive ? (
-          <LinearGradient
-            colors={[ACCENT, ACCENT_LIGHT]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.periodButton}
+      <AnimatedPressable key={value} onPress={() => setPeriod(value)} scaleValue={0.93}>
+        <View
+          style={[
+            styles.periodButton,
+            isActive
+              ? { backgroundColor: colors.primary }
+              : { backgroundColor: colors.card, borderWidth: 0.5, borderColor: colors.border },
+          ]}
+        >
+          <Text
+            style={[
+              styles.periodText,
+              isActive ? styles.periodTextActive : { color: colors.textSecondary },
+            ]}
           >
-            <Text style={[styles.periodText, styles.periodTextActive]}>
-              {label}
-            </Text>
-          </LinearGradient>
-        ) : (
-          <BlurView
-            intensity={GLASS.blurIntensity}
-            tint={isDark ? 'dark' : 'light'}
-            style={[styles.periodButton, styles.periodButtonInactive]}
-          >
-            <Text style={[styles.periodText, { color: 'rgba(255, 255, 255, 0.6)' }]}>
-              {label}
-            </Text>
-          </BlurView>
-        )}
+            {label}
+          </Text>
+        </View>
       </AnimatedPressable>
     );
   };
 
   if (loading && !stats) {
     return (
-      <View style={[styles.container, { backgroundColor: colors.background }]}>
-        <View style={styles.loadingContainer}>
-          <GlassCard
-            intensity={GLASS.blurIntensity}
-            tint={isDark ? 'dark' : 'light'}
-            style={styles.loadingCard}
-          >
-            <ActivityIndicator size="large" color={ACCENT} />
-            <Text style={styles.loadingText}>Loading statistics...</Text>
-          </GlassCard>
+      <View style={[styles.container, styles.center, { backgroundColor: colors.background }]}>
+        <View style={[styles.loadingCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+          <ActivityIndicator size="large" color={colors.primary} />
+          <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
+            Loading statistics...
+          </Text>
         </View>
       </View>
     );
@@ -126,214 +99,215 @@ export default function StatisticsScreen({ navigation }: any) {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
-        style={[styles.container, { backgroundColor: colors.background }]}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={ACCENT} />}
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} />
+        }
       >
-        {/* Header */}
-        <LinearGradient
-          colors={['#1a0533', '#2d0a4e', '#1a0533']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.header}
-        >
-          <Animated.Text
-            entering={FadeIn.duration(500)}
-            style={styles.title}
-          >
-            Statistics
-          </Animated.Text>
-
-          <View style={styles.periodSelector}>
-            {renderPeriodChip('week', 'Week')}
-            {renderPeriodChip('month', 'Month')}
-            {renderPeriodChip('year', 'Year')}
-          </View>
-        </LinearGradient>
+        {/* Period selector */}
+        <View style={styles.periodSelector}>
+          {renderPeriodChip('week', 'Week')}
+          {renderPeriodChip('month', 'Month')}
+          {renderPeriodChip('year', 'Year')}
+        </View>
 
         {stats && (
           <>
-            {/* Summary Cards */}
-            <View style={styles.summaryContainer}>
-              <Animated.View entering={FadeInDown.delay(100).duration(500)} style={styles.summaryCardWrapper}>
-                <GlassCard intensity={GLASS.blurIntensity} tint={isDark ? 'dark' : 'light'} style={styles.summaryCard}>
-                  <View style={[styles.iconBadge, { backgroundColor: 'rgba(255, 59, 48, 0.2)' }]}>
-                    <Text style={styles.iconBadgeText}>{'\u2193'}</Text>
-                  </View>
-                  <Text style={styles.summaryLabel}>Total Expenses</Text>
-                  <Text style={[styles.summaryValue, { color: '#FFFFFF' }]}>
-                    {stats.totalExpenses?.toFixed(2) || stats.total?.toFixed(2) || '0.00'}
-                  </Text>
-                </GlassCard>
-              </Animated.View>
+            {/* Spent / Income tinted pair */}
+            <Animated.View entering={FadeInDown.delay(60).duration(400)} style={styles.bentoRow}>
+              <View style={[styles.tintCard, { backgroundColor: colors.tintWarm }]}>
+                <Text style={[styles.tintLabel, { color: colors.tintWarmText }]}>Spent</Text>
+                <Text style={[styles.tintValue, { color: colors.tintWarmText }]}>
+                  {fmt(stats.totalExpenses ?? stats.total)}
+                </Text>
+              </View>
+              <View style={[styles.tintCard, { backgroundColor: colors.tintCool }]}>
+                <Text style={[styles.tintLabel, { color: colors.tintCoolText }]}>Income</Text>
+                <Text style={[styles.tintValue, { color: colors.tintCoolText }]}>
+                  {fmt(stats.totalIncome)}
+                </Text>
+              </View>
+            </Animated.View>
 
-              <Animated.View entering={FadeInDown.delay(200).duration(500)} style={styles.summaryCardWrapper}>
-                <GlassCard intensity={GLASS.blurIntensity} tint={isDark ? 'dark' : 'light'} style={styles.summaryCard}>
-                  <View style={[styles.iconBadge, { backgroundColor: 'rgba(52, 199, 89, 0.2)' }]}>
-                    <Text style={[styles.iconBadgeText, { color: '#34C759' }]}>{'\u2191'}</Text>
-                  </View>
-                  <Text style={styles.summaryLabel}>Total Income</Text>
-                  <Text style={[styles.summaryValue, { color: '#34C759' }]}>
-                    {stats.totalIncome?.toFixed(2) || '0.00'}
-                  </Text>
-                </GlassCard>
-              </Animated.View>
+            {/* Net + daily average pair */}
+            <Animated.View entering={FadeInDown.delay(120).duration(400)} style={styles.bentoRow}>
+              <View style={[styles.miniCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.miniLabel, { color: colors.textSecondary }]}>NET</Text>
+                <Text
+                  style={[
+                    styles.miniValue,
+                    { color: (stats.netAmount || 0) >= 0 ? colors.success : colors.error },
+                  ]}
+                >
+                  {(stats.netAmount || 0) >= 0 ? '+' : ''}
+                  {fmt(stats.netAmount)}
+                </Text>
+              </View>
+              <View style={[styles.miniCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Text style={[styles.miniLabel, { color: colors.textSecondary }]}>AVG / DAY</Text>
+                <Text style={[styles.miniValue, { color: colors.text }]}>
+                  {fmt(stats.averagePerDay)}
+                </Text>
+              </View>
+            </Animated.View>
 
-              <Animated.View entering={FadeInDown.delay(300).duration(500)} style={styles.summaryCardWrapper}>
-                <GlassCard intensity={GLASS.blurIntensity} tint={isDark ? 'dark' : 'light'} style={styles.summaryCard}>
-                  <View style={[styles.iconBadge, { backgroundColor: 'rgba(106, 13, 173, 0.2)' }]}>
-                    <Text style={[styles.iconBadgeText, { color: ACCENT_LIGHT }]}>{'\u2194'}</Text>
-                  </View>
-                  <Text style={styles.summaryLabel}>Net Amount</Text>
-                  <Text
-                    style={[
-                      styles.summaryValue,
-                      { color: (stats.netAmount || 0) >= 0 ? '#34C759' : '#FF3B30' },
-                    ]}
-                  >
-                    {(stats.netAmount || 0).toFixed(2)}
+            {/* Top categories with bars */}
+            {(stats?.unconvertedCount ?? 0) > 0 && (
+              <Animated.View entering={FadeInDown.delay(160).duration(400)}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginBottom: 12, marginHorizontal: 4 }}>
+                  <Warning size={14} color={colors.warning} weight="fill" />
+                  <Text style={{ flex: 1, fontSize: 12, lineHeight: 17, color: colors.textSecondary }}>
+                    {stats.unconvertedCount} transaction{stats.unconvertedCount === 1 ? '' : 's'} in{' '}
+                    {(stats.unconvertedCurrencies || []).join(', ')} excluded from totals — currency
+                    conversion unavailable. They'll be included automatically once rates are reachable.
                   </Text>
-                </GlassCard>
+                </View>
               </Animated.View>
-            </View>
+            )}
 
-            {/* Top Categories */}
-            {stats.topCategories && stats.topCategories.length > 0 && (
-              <Animated.View entering={FadeInDown.delay(400).duration(500)} style={styles.sectionWrapper}>
-                <GlassCard intensity={GLASS.blurIntensity} tint={isDark ? 'dark' : 'light'} style={styles.section}>
-                  <Text style={styles.sectionTitle}>TOP CATEGORIES</Text>
-                  {stats.topCategories.map((cat: any, index: number) => (
-                    <View
-                      key={index}
-                      style={[
-                        styles.categoryItem,
-                        index < stats.topCategories.length - 1 && styles.categoryItemBorder,
-                      ]}
-                    >
-                      <View style={styles.categoryInfo}>
-                        <Text style={[styles.categoryName, { color: colors.text }]}>{cat.name}</Text>
-                        <View style={styles.percentageBadge}>
-                          <Text style={styles.percentageBadgeText}>
-                            {cat.percentage.toFixed(1)}%
+            {topCategories.length > 0 && (
+              <Animated.View entering={FadeInDown.delay(180).duration(400)}>
+                <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Top categories</Text>
+                  {topCategories.map((cat, i) => (
+                    <View key={cat.name} style={styles.catRow}>
+                      <View style={[styles.catEmoji, { backgroundColor: colors.inputBg }]}>
+                        <CategoryIcon name={cat.name} size={20} color={colors.textSecondary} />
+                      </View>
+                      <View style={styles.catBody}>
+                        <View style={styles.catTopLine}>
+                          <Text style={[styles.catName, { color: colors.text }]} numberOfLines={1}>
+                            {cat.name}
+                          </Text>
+                          <Text style={[styles.catAmount, { color: colors.text }]}>
+                            {fmt(cat.amount)}
                           </Text>
                         </View>
+                        <View style={[styles.barTrack, { backgroundColor: colors.inputBg }]}>
+                          <View
+                            style={[
+                              styles.barFill,
+                              {
+                                width: `${Math.max((cat.amount / maxCatAmount) * 100, 4)}%`,
+                                backgroundColor: segmentColors[i % segmentColors.length],
+                              },
+                            ]}
+                          />
+                        </View>
+                        <Text style={[styles.catPct, { color: colors.textTertiary }]}>
+                          {Math.round(cat.percentage || 0)}% of spending
+                        </Text>
                       </View>
-                      <Text style={[styles.categoryAmount, { color: colors.text }]}>{cat.amount.toFixed(2)}</Text>
                     </View>
                   ))}
-                </GlassCard>
+                </View>
               </Animated.View>
             )}
 
-            {/* Top Merchants */}
+            {/* Top merchants */}
             {stats.topMerchants && stats.topMerchants.length > 0 && (
-              <Animated.View entering={FadeInDown.delay(500).duration(500)} style={styles.sectionWrapper}>
-                <GlassCard intensity={GLASS.blurIntensity} tint={isDark ? 'dark' : 'light'} style={styles.section}>
-                  <Text style={styles.sectionTitle}>TOP MERCHANTS</Text>
-                  {stats.topMerchants.map((merchant: any, index: number) => (
+              <Animated.View entering={FadeInDown.delay(240).duration(400)}>
+                <View style={[styles.sectionCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <Text style={[styles.sectionTitle, { color: colors.text }]}>Top merchants</Text>
+                  {stats.topMerchants.slice(0, 5).map((m: any, index: number, arr: any[]) => (
                     <View
-                      key={index}
+                      key={m.name}
                       style={[
-                        styles.categoryItem,
-                        index < stats.topMerchants.length - 1 && styles.categoryItemBorder,
+                        styles.merchantRow,
+                        index < arr.length - 1 && { borderBottomWidth: 0.5, borderBottomColor: colors.border },
                       ]}
                     >
-                      <View style={styles.categoryInfo}>
-                        <Text style={[styles.categoryName, { color: colors.text }]}>{merchant.name}</Text>
-                        <Text style={styles.merchantCount}>{merchant.count} transactions</Text>
+                      <View style={[styles.rankBadge, { backgroundColor: index === 0 ? colors.tintWarm : colors.inputBg }]}>
+                        <Text style={[styles.rankText, { color: index === 0 ? colors.tintWarmText : colors.textSecondary }]}>
+                          {index + 1}
+                        </Text>
                       </View>
-                      <Text style={[styles.categoryAmount, { color: colors.text }]}>{merchant.amount.toFixed(2)}</Text>
+                      <View style={styles.merchantInfo}>
+                        <Text style={[styles.merchantName, { color: colors.text }]} numberOfLines={1}>
+                          {m.name}
+                        </Text>
+                        <Text style={[styles.merchantCount, { color: colors.textTertiary }]}>
+                          {m.count} transaction{m.count === 1 ? '' : 's'}
+                        </Text>
+                      </View>
+                      <Text style={[styles.merchantAmount, { color: colors.text }]}>{fmt(m.amount)}</Text>
                     </View>
                   ))}
-                </GlassCard>
+                </View>
               </Animated.View>
             )}
 
-            {/* Category Breakdown */}
-            {stats.byCategory && Object.keys(stats.byCategory).length > 0 && (
-              <Animated.View entering={FadeInDown.delay(600).duration(500)} style={styles.sectionWrapper}>
-                <GlassCard intensity={GLASS.blurIntensity} tint={isDark ? 'dark' : 'light'} style={styles.section}>
-                  <Text style={styles.sectionTitle}>CATEGORY BREAKDOWN</Text>
-                  {Object.entries(stats.byCategory)
-                    .sort(([, a]: any, [, b]: any) => b - a)
-                    .map(([name, amount]: [string, any], index: number, arr: [string, any][]) => (
-                      <View
-                        key={name}
-                        style={[
-                          styles.categoryItem,
-                          index < arr.length - 1 && styles.categoryItemBorder,
-                        ]}
-                      >
-                        <Text style={[styles.categoryName, { color: colors.text }]}>{name}</Text>
-                        <Text style={[styles.categoryAmount, { color: colors.text }]}>{amount.toFixed(2)}</Text>
-                      </View>
-                    ))}
-                </GlassCard>
+            {stats && (stats.totalExpenses ?? stats.total ?? 0) === 0 && (stats.totalIncome ?? 0) === 0 && (
+              <Animated.View entering={FadeInDown.delay(180).duration(400)}>
+                <View style={[styles.sectionCard, styles.emptyCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  <View style={styles.emptyEmoji}>
+                    <ChartBar size={44} color={colors.textTertiary} weight="duotone" />
+                  </View>
+                  <Text style={[styles.emptyTitle, { color: colors.text }]}>Nothing here yet</Text>
+                  <Text style={[styles.emptySub, { color: colors.textSecondary }]}>
+                    Add a few transactions and your insights will appear.
+                  </Text>
+                </View>
               </Animated.View>
             )}
-
-            {/* Average per day */}
-            <Animated.View entering={FadeInDown.delay(700).duration(500)} style={styles.sectionWrapper}>
-              <GlassCard intensity={GLASS.blurIntensity} tint={isDark ? 'dark' : 'light'} style={styles.averageSection}>
-                <Text style={styles.sectionTitle}>AVERAGE DAILY SPENDING</Text>
-                <Text style={styles.averageText}>
-                  {stats.averagePerDay?.toFixed(2) || '0.00'} per day
-                </Text>
-              </GlassCard>
-            </Animated.View>
           </>
         )}
+
+        <View style={{ height: 32 }} />
       </ScrollView>
     </View>
   );
 }
 
+const warmShadow = Platform.select({
+  ios: {
+    shadowColor: '#5E4A36',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.07,
+    shadowRadius: 10,
+  },
+  android: { elevation: 2 },
+});
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  loadingContainer: {
-    flex: 1,
+  center: {
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 40,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
   },
   loadingCard: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 40,
     paddingHorizontal: 60,
+    borderRadius: BENTO_RADIUS,
+    borderWidth: 0.5,
   },
   loadingText: {
-    color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 15,
     marginTop: 16,
     fontWeight: '500',
   },
-  header: {
-    padding: 20,
-    paddingBottom: 24,
-    borderBottomWidth: 1,
-    borderBottomColor: GLASS.borderColor,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    color: '#FFFFFF',
-  },
+
+  // Period chips
   periodSelector: {
     flexDirection: 'row',
     gap: 10,
+    marginBottom: 16,
   },
   periodButton: {
     paddingHorizontal: 22,
     paddingVertical: 10,
     borderRadius: 20,
     overflow: 'hidden',
-  },
-  periodButtonInactive: {
-    borderWidth: 1,
-    borderColor: GLASS.borderColor,
   },
   periodText: {
     fontSize: 14,
@@ -343,107 +317,168 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontWeight: '700',
   },
-  summaryContainer: {
+
+  // Bento rows
+  bentoRow: {
     flexDirection: 'row',
-    padding: 15,
     gap: 10,
+    marginBottom: 10,
   },
-  summaryCardWrapper: {
+  tintCard: {
     flex: 1,
-  },
-  summaryCard: {
-    alignItems: 'center',
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-  },
-  iconBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  iconBadgeText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#FF3B30',
-  },
-  summaryLabel: {
-    fontSize: 11,
-    marginBottom: 6,
-    color: 'rgba(255, 255, 255, 0.5)',
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  summaryValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  sectionWrapper: {
-    marginHorizontal: 15,
-    marginBottom: 15,
-  },
-  section: {
+    borderRadius: BENTO_RADIUS,
     padding: 16,
+    minHeight: 92,
+    justifyContent: 'center',
+    ...warmShadow,
+  },
+  tintLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    opacity: 0.85,
+  },
+  tintValue: {
+    fontSize: 24,
+    fontWeight: '800',
+    letterSpacing: -0.5,
+    marginTop: 4,
+    fontVariant: ['tabular-nums'],
+  },
+  miniCard: {
+    flex: 1,
+    borderRadius: BENTO_RADIUS,
+    borderWidth: 0.5,
+    padding: 14,
+    ...warmShadow,
+  },
+  miniLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  miniValue: {
+    fontSize: 19,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    marginTop: 4,
+    fontVariant: ['tabular-nums'],
+  },
+
+  // Section cards
+  sectionCard: {
+    borderRadius: BENTO_RADIUS,
+    borderWidth: 0.5,
+    padding: 16,
+    marginBottom: 10,
+    ...warmShadow,
   },
   sectionTitle: {
-    fontSize: 13,
+    fontSize: 15,
     fontWeight: '700',
-    marginBottom: 16,
-    color: ACCENT_LIGHT,
-    textTransform: 'uppercase',
-    letterSpacing: 1.5,
+    marginBottom: 14,
   },
-  categoryItem: {
+
+  // Category rows with bars
+  catRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 14,
+  },
+  catEmoji: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  catEmojiText: {
+    fontSize: 17,
+  },
+  catBody: {
+    flex: 1,
+  },
+  catTopLine: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
+    marginBottom: 6,
   },
-  categoryItemBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  categoryInfo: {
+  catName: {
+    fontSize: 14,
+    fontWeight: '600',
     flex: 1,
+    marginRight: 8,
+  },
+  catAmount: {
+    fontSize: 14,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+  barTrack: {
+    height: 8,
+    borderRadius: 4,
+    overflow: 'hidden',
+  },
+  barFill: {
+    height: 8,
+    borderRadius: 4,
+  },
+  catPct: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 4,
+  },
+
+  // Merchants
+  merchantRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
+    paddingVertical: 11,
   },
-  categoryName: {
-    fontSize: 15,
+  rankBadge: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rankText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  merchantInfo: {
+    flex: 1,
+  },
+  merchantName: {
+    fontSize: 14,
     fontWeight: '600',
-  },
-  percentageBadge: {
-    backgroundColor: 'rgba(106, 13, 173, 0.3)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  percentageBadgeText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: ACCENT_LIGHT,
   },
   merchantCount: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.4)',
+    marginTop: 1,
   },
-  categoryAmount: {
-    fontSize: 15,
+  merchantAmount: {
+    fontSize: 14,
+    fontWeight: '700',
+    fontVariant: ['tabular-nums'],
+  },
+
+  // Empty
+  emptyCard: {
+    alignItems: 'center',
+    paddingVertical: 30,
+  },
+  emptyEmoji: {
+    fontSize: 36,
+    marginBottom: 10,
+  },
+  emptyTitle: {
+    fontSize: 16,
     fontWeight: '700',
   },
-  averageSection: {
-    alignItems: 'center',
-    paddingVertical: 24,
-  },
-  averageText: {
-    fontSize: 28,
-    fontWeight: 'bold',
+  emptySub: {
+    fontSize: 13,
+    marginTop: 4,
     textAlign: 'center',
-    color: ACCENT_LIGHT,
-    paddingVertical: 8,
   },
 });

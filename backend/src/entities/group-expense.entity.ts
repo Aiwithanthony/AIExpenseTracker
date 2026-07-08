@@ -11,11 +11,13 @@ import {
 import { ExpenseGroup } from './expense-group.entity';
 import { User } from './user.entity';
 import { GroupExpenseSplit } from './group-expense-split.entity';
+import { DecimalTransformer } from '../common/transformers/decimal.transformer';
 
 export enum SplitType {
   EQUAL = 'equal',
   EXACT = 'exact',
   PERCENTAGE = 'percentage',
+  SHARES = 'shares',
 }
 
 @Entity('group_expenses')
@@ -29,7 +31,7 @@ export class GroupExpense {
   @Column()
   paidBy: string;
 
-  @Column('decimal', { precision: 18, scale: 2 })
+  @Column('decimal', { precision: 18, scale: 2, transformer: DecimalTransformer })
   amount: number;
 
   @Column()

@@ -13,6 +13,7 @@ import { VoiceService } from './voice.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { User } from '../entities/user.entity';
+import { toLlmHttpError } from '../common/utils/llm-error';
 
 export class ProcessVoiceDto {
   @IsString()
@@ -88,13 +89,17 @@ export class VoiceController {
       throw new BadRequestException('No audio file uploaded');
     }
 
-    const transcript = await this.voiceService.transcribeAudio(file.path);
-
-    // Clean up the file after transcription
     const fs = require('fs');
-    fs.unlinkSync(file.path);
-
-    return { transcript };
+    try {
+      const transcript = await this.voiceService.transcribeAudio(file.path);
+      return { transcript };
+    } catch (error) {
+      throw toLlmHttpError(error);
+    } finally {
+      if (fs.existsSync(file.path)) {
+        fs.unlinkSync(file.path);
+      }
+    }
   }
 
   @Post('process')
@@ -146,18 +151,23 @@ export class VoiceController {
       throw new BadRequestException('No audio file uploaded');
     }
 
-    // Transcribe and process in one go
-    const expenses = await this.voiceService.transcribeAndProcessAudio(
-      user.id,
-      file.path,
-      user.currency,
-    );
-
-    // Clean up the file
     const fs = require('fs');
-    fs.unlinkSync(file.path);
-
-    return { expenses };
+    try {
+      // Transcribe and process in one go
+      const expenses = await this.voiceService.transcribeAndProcessAudio(
+        user.id,
+        file.path,
+        user.currency,
+      );
+      return { expenses };
+    } catch (error) {
+      throw toLlmHttpError(error);
+    } finally {
+      // Always clean up the uploaded file, even on error.
+      if (fs.existsSync(file.path)) {
+        fs.unlinkSync(file.path);
+      }
+    }
   }
 }
 

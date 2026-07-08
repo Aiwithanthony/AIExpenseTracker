@@ -1,11 +1,14 @@
-import { Link, useLocation } from 'react-router-dom';
+import { type ReactNode } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { api } from '../services/api';
 
 interface LayoutProps {
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
 
   const navItems = [
     { path: '/', label: 'Dashboard' },
@@ -13,6 +16,11 @@ export default function Layout({ children }: LayoutProps) {
     { path: '/subscribers', label: 'Subscribers' },
     { path: '/payments', label: 'Payments' },
   ];
+
+  const handleLogout = () => {
+    api.logout();
+    navigate('/login', { replace: true });
+  };
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -39,6 +47,14 @@ export default function Layout({ children }: LayoutProps) {
                 ))}
               </div>
             </div>
+            <div className="flex items-center">
+              <button
+                onClick={handleLogout}
+                className="text-sm font-medium text-gray-500 hover:text-gray-900"
+              >
+                Log out
+              </button>
+            </div>
           </div>
         </div>
       </nav>
@@ -49,4 +65,3 @@ export default function Layout({ children }: LayoutProps) {
     </div>
   );
 }
-

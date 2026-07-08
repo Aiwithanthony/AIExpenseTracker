@@ -1,7 +1,17 @@
-import { Controller, Get, Post, Body, Query, Req, Res } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Query,
+  Req,
+  Res,
+  Headers,
+  ForbiddenException,
+  RawBodyRequest,
+} from '@nestjs/common';
 import { WhatsAppService } from './whatsapp.service';
-import { Request } from 'express';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 
 @Controller('whatsapp')
 export class WhatsAppController {
@@ -24,13 +34,22 @@ export class WhatsAppController {
   }
 
   @Post('webhook')
-  async handleWebhook(@Body() body: any) {
+  async handleWebhook(
+    @Req() req: RawBodyRequest<Request>,
+    @Body() body: any,
+    @Headers('x-hub-signature-256') signature?: string,
+  ) {
+    // Reject forged payloads: only accept POSTs whose HMAC matches our app secret.
+    if (!this.whatsappService.verifySignature(req.rawBody, signature)) {
+      throw new ForbiddenException('Invalid webhook signature');
+    }
+
     if (body.object === 'whatsapp_business_account') {
       for (const entry of body.entry || []) {
         await this.whatsappService.handleMessage(entry);
       }
     }
-    
+
     return { status: 'ok' };
   }
 }

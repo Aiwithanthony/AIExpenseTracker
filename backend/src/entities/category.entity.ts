@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 import { Expense } from './expense.entity';
+import { DecimalTransformer } from '../common/transformers/decimal.transformer';
 
 @Entity('categories')
 export class Category {
@@ -31,7 +32,7 @@ export class Category {
   @Column({ default: false })
   isDefault: boolean;
 
-  @Column('decimal', { precision: 18, scale: 2, nullable: true })
+  @Column('decimal', { precision: 18, scale: 2, nullable: true, transformer: DecimalTransformer })
   budgetLimit: number; // Monthly budget limit for this category
 
   @Column({ nullable: true })

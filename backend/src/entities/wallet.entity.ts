@@ -8,6 +8,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { User } from './user.entity';
+import { DecimalTransformer } from '../common/transformers/decimal.transformer';
 
 @Entity('wallets')
 export class Wallet {
@@ -20,7 +21,7 @@ export class Wallet {
   @Column()
   name: string; // e.g., "Cash", "Bank Account", "Credit Card"
 
-  @Column('decimal', { precision: 18, scale: 2 })
+  @Column('decimal', { precision: 18, scale: 2, transformer: DecimalTransformer })
   balance: number;
 
   @Column()

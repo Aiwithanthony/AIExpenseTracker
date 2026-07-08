@@ -4,6 +4,7 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { SanitizeInterceptor } from './common/interceptors/sanitize.interceptor';
 import { LLMModule } from './llm/llm.module';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './auth/auth.module';
@@ -27,6 +28,7 @@ import { BillsModule } from './bills/bills.module';
 import { TemplatesModule } from './templates/templates.module';
 import { WalletsModule } from './wallets/wallets.module';
 import { ChallengesModule } from './challenges/challenges.module';
+import { UploadsModule } from './uploads/uploads.module';
 
 @Module({
   imports: [
@@ -61,6 +63,7 @@ import { ChallengesModule } from './challenges/challenges.module';
     TemplatesModule,
     WalletsModule,
     ChallengesModule,
+    UploadsModule,
   ],
   controllers: [AppController],
   providers: [
@@ -72,6 +75,10 @@ import { ChallengesModule } from './challenges/challenges.module';
     {
       provide: APP_INTERCEPTOR,
       useClass: LoggingInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: SanitizeInterceptor,
     },
   ],
 })

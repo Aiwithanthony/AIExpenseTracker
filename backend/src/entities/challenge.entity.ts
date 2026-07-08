@@ -8,6 +8,7 @@ import {
   JoinColumn,
 } from 'typeorm';
 import { User } from './user.entity';
+import { DecimalTransformer } from '../common/transformers/decimal.transformer';
 
 export enum ChallengeType {
   SPENDING_LIMIT = 'spending_limit',
@@ -44,7 +45,7 @@ export class Challenge {
   })
   status: ChallengeStatus;
 
-  @Column('decimal', { precision: 18, scale: 2, nullable: true })
+  @Column('decimal', { precision: 18, scale: 2, nullable: true, transformer: DecimalTransformer })
   targetAmount: number;
 
   @Column('date')
@@ -53,7 +54,7 @@ export class Challenge {
   @Column('date')
   endDate: Date;
 
-  @Column('decimal', { precision: 18, scale: 2, default: 0 })
+  @Column('decimal', { precision: 18, scale: 2, default: 0, transformer: DecimalTransformer })
   currentProgress: number;
 
   @Column({ nullable: true })

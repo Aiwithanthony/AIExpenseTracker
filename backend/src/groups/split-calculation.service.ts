@@ -73,6 +73,37 @@ export class SplitCalculationService {
   }
 
   /**
+   * Convert SHARES split to absolute amounts.
+   * Each participant's share is proportional to their share count.
+   * E.g. shares [2, 1] on $30 → [$20, $10].
+   */
+  calculateSharesSplit(
+    totalAmount: number,
+    shares: Map<string, number>,
+  ): Map<string, number> {
+    const totalShares = Array.from(shares.values()).reduce((a, b) => a + b, 0);
+    if (totalShares <= 0) {
+      throw new BadRequestException('Total shares must be greater than 0');
+    }
+
+    const amounts = new Map<string, number>();
+    let allocated = 0;
+    const entries = Array.from(shares.entries());
+
+    for (let i = 0; i < entries.length - 1; i++) {
+      const amount = Math.round((totalAmount * entries[i][1]) / totalShares * 100) / 100;
+      amounts.set(entries[i][0], amount);
+      allocated += amount;
+    }
+
+    // Last person gets remainder to handle rounding
+    const lastEntry = entries[entries.length - 1];
+    amounts.set(lastEntry[0], Math.round((totalAmount - allocated) * 100) / 100);
+
+    return amounts;
+  }
+
+  /**
    * Debt simplification algorithm (Greedy matching).
    *
    * Input: net balances per user (positive = net creditor, negative = net debtor)

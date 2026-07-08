@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   Alert,
   ActivityIndicator,
@@ -10,30 +9,16 @@ import {
   TouchableWithoutFeedback,
   KeyboardAvoidingView,
 } from 'react-native';
+import { Text } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as AppleAuthentication from 'expo-apple-authentication';
+import { Wallet } from 'phosphor-react-native';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useGoogleAuth } from '../services/oauth';
-import GlassCard from '../components/GlassCard';
 import GlassInput from '../components/GlassInput';
 import AnimatedPressable from '../components/AnimatedPressable';
-
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
-
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  borderColorStrong: 'rgba(255, 255, 255, 0.3)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  bgMedium: 'rgba(255, 255, 255, 0.12)',
-  bgDark: 'rgba(0, 0, 0, 0.2)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
 
 export default function LoginScreen({ navigation }: any) {
   const { colors, isDark } = useTheme();
@@ -45,28 +30,19 @@ export default function LoginScreen({ navigation }: any) {
   const { signIn: signInWithGoogle, isLoading: googleLoading, isReady: googleReady } = useGoogleAuth();
 
   useEffect(() => {
-    // Check if Apple Sign-In is available
     AppleAuthentication.isAvailableAsync().then(setAppleAvailable);
-  }, []);
-
-  // Handle Google sign-in success
-  useEffect(() => {
-    // The useGoogleAuth hook handles the OAuth flow internally
-    // We just need to listen for when it completes and update the user
-    // This is handled by the hook's internal useEffect
   }, []);
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
+      Alert.alert('Missing Fields', 'Enter your email and password to sign in.');
       return;
     }
-
     setLoading(true);
     try {
       await login(email, password);
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message || 'Invalid credentials');
+      Alert.alert('Sign In Failed', error.message || 'Check your email and password, then try again.');
     } finally {
       setLoading(false);
     }
@@ -74,14 +50,12 @@ export default function LoginScreen({ navigation }: any) {
 
   const handleGoogleLogin = async () => {
     try {
-      // The hook handles the OAuth flow and backend call
-      // We need to manually update the user after successful login
       const response = await signInWithGoogle();
       if (response?.user) {
         setUserAfterOAuth(response.user);
       }
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message || 'Google sign-in failed');
+      Alert.alert('Google Sign In Failed', error.message || 'Could not complete Google sign-in. Try again.');
     }
   };
 
@@ -90,7 +64,7 @@ export default function LoginScreen({ navigation }: any) {
     try {
       await appleLogin();
     } catch (error: any) {
-      Alert.alert('Login Failed', error.message || 'Apple sign-in failed');
+      Alert.alert('Apple Sign In Failed', error.message || 'Could not complete Apple sign-in. Try again.');
     } finally {
       setLoading(false);
     }
@@ -99,128 +73,128 @@ export default function LoginScreen({ navigation }: any) {
   const isLoading = loading || googleLoading;
 
   return (
-    <LinearGradient
-      colors={['#0D0221', '#0F0326', '#1A0533']}
-      style={styles.gradient}
-    >
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <KeyboardAvoidingView
           style={styles.keyboardAvoid}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-            <View style={styles.container}>
-              {/* Decorative orbs */}
-              <View style={styles.orbContainer}>
-                <View style={[styles.orb, styles.orbPrimary]} />
-                <View style={[styles.orb, styles.orbSecondary]} />
-              </View>
-
-              {/* Branding Area */}
+            <View style={styles.inner}>
+              {/* Branding */}
               <Animated.View
-                entering={FadeInDown.duration(600).delay(100)}
+                entering={FadeInDown.duration(400).delay(0)}
                 style={styles.brandingArea}
               >
-                <Text style={styles.title}>Expense Tracker</Text>
-                <Text style={styles.subtitle}>Sign in to continue</Text>
+                <View style={[styles.brandIcon, { backgroundColor: colors.tintWarm }]}>
+                  <Wallet size={32} color={colors.tintWarmText} weight="duotone" />
+                </View>
+                <Text style={[styles.title, { color: colors.text }]}>
+                  Welcome back
+                </Text>
+                <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+                  Track your money with confidence
+                </Text>
               </Animated.View>
 
               {/* Form Card */}
-              <Animated.View entering={FadeInDown.duration(600).delay(250)}>
-                <GlassCard style={styles.formCard}>
+              <Animated.View entering={FadeInDown.duration(400).delay(80)}>
+                <View style={[
+                  styles.formCard,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                  },
+                ]}>
                   <GlassInput
                     label="Email"
-                    isDark={true}
-                    textColor="#FFFFFF"
-                    placeholderColor="rgba(255,255,255,0.4)"
-                    labelColor="rgba(255,255,255,0.6)"
+                    isDark={isDark}
+                    textColor={colors.text}
+                    placeholderColor={colors.textTertiary}
+                    labelColor={colors.textSecondary}
                     placeholder="Email"
                     value={email}
                     onChangeText={setEmail}
                     keyboardType="email-address"
                     autoCapitalize="none"
                   />
-
                   <GlassInput
                     label="Password"
-                    isDark={true}
-                    textColor="#FFFFFF"
-                    placeholderColor="rgba(255,255,255,0.4)"
-                    labelColor="rgba(255,255,255,0.6)"
+                    isDark={isDark}
+                    textColor={colors.text}
+                    placeholderColor={colors.textTertiary}
+                    labelColor={colors.textSecondary}
                     placeholder="Password"
                     value={password}
                     onChangeText={setPassword}
                     secureTextEntry
                   />
-                </GlassCard>
+                </View>
               </Animated.View>
 
               {/* Sign In Button */}
-              <Animated.View entering={FadeInDown.duration(600).delay(400)}>
+              <Animated.View entering={FadeInDown.duration(400).delay(160)}>
                 <AnimatedPressable
                   onPress={handleLogin}
                   disabled={isLoading}
-                  style={styles.signInButtonWrapper}
+                  style={styles.signInWrapper}
                 >
-                  <LinearGradient
-                    colors={[ACCENT, ACCENT_LIGHT]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.signInButton}
-                  >
+                  <View style={[styles.signInButton, { backgroundColor: colors.primary }]}>
                     {isLoading ? (
                       <ActivityIndicator color="#fff" />
                     ) : (
-                      <Text style={styles.signInButtonText}>Sign In</Text>
+                      <Text style={styles.signInText}>Sign In</Text>
                     )}
-                  </LinearGradient>
+                  </View>
                 </AnimatedPressable>
               </Animated.View>
 
               {/* Divider */}
               <Animated.View
-                entering={FadeInDown.duration(600).delay(500)}
+                entering={FadeInDown.duration(400).delay(240)}
                 style={styles.divider}
               >
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>OR</Text>
-                <View style={styles.dividerLine} />
+                <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+                <Text style={[styles.dividerText, { color: colors.textTertiary }]}>OR</Text>
+                <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
               </Animated.View>
 
               {/* Google Button */}
-              <Animated.View entering={FadeInDown.duration(600).delay(600)}>
+              <Animated.View entering={FadeInDown.duration(400).delay(320)}>
                 <AnimatedPressable
                   onPress={handleGoogleLogin}
                   disabled={!googleReady || isLoading}
-                  style={styles.socialButtonWrapper}
+                  style={styles.socialWrapper}
                 >
-                  <BlurView
-                    intensity={GLASS.blurIntensity}
-                    tint={isDark ? 'dark' : 'light'}
-                    style={styles.googleButton}
-                  >
+                  <View style={[
+                    styles.socialButton,
+                    {
+                      backgroundColor: colors.card,
+                      borderColor: colors.borderStrong,
+                    },
+                  ]}>
                     {googleLoading ? (
-                      <ActivityIndicator color="#FFFFFF" />
+                      <ActivityIndicator color={colors.text} />
                     ) : (
-                      <Text style={styles.googleButtonText}>
-                        {'\uD83D\uDD35'} Continue with Google
+                      <Text style={[styles.socialText, { color: colors.text }]}>
+                        Continue with Google
                       </Text>
                     )}
-                  </BlurView>
+                  </View>
                 </AnimatedPressable>
               </Animated.View>
 
               {/* Apple Button */}
               {Platform.OS === 'ios' && appleAvailable && (
-                <Animated.View entering={FadeInDown.duration(600).delay(700)}>
+                <Animated.View entering={FadeInDown.duration(400).delay(400)}>
                   <AnimatedPressable
                     onPress={handleAppleLogin}
                     disabled={isLoading}
-                    style={styles.socialButtonWrapper}
+                    style={styles.socialWrapper}
                   >
-                    <View style={styles.appleButton}>
-                      <Text style={styles.appleButtonText}>
-                        {'\uD83C\uDF4E'} Continue with Apple
+                    <View style={[styles.socialButton, styles.appleButton, { borderColor: isDark ? '#38383a' : '#000000' }]}>
+                      <Text style={styles.appleText}>
+                        Continue with Apple
                       </Text>
                     </View>
                   </AnimatedPressable>
@@ -228,14 +202,14 @@ export default function LoginScreen({ navigation }: any) {
               )}
 
               {/* Sign Up Link */}
-              <Animated.View entering={FadeInDown.duration(600).delay(800)}>
+              <Animated.View entering={FadeInDown.duration(400).delay(480)}>
                 <AnimatedPressable
                   onPress={() => navigation.navigate('Register')}
                   style={styles.linkButton}
                 >
-                  <Text style={styles.linkText}>
+                  <Text style={[styles.linkText, { color: colors.textSecondary }]}>
                     Don&apos;t have an account?{' '}
-                    <Text style={styles.linkTextAccent}>Sign up</Text>
+                    <Text style={[styles.linkTextAccent, { color: colors.primary }]}>Sign up</Text>
                   </Text>
                 </AnimatedPressable>
               </Animated.View>
@@ -243,12 +217,12 @@ export default function LoginScreen({ navigation }: any) {
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  gradient: {
+  container: {
     flex: 1,
   },
   safeArea: {
@@ -257,35 +231,10 @@ const styles = StyleSheet.create({
   keyboardAvoid: {
     flex: 1,
   },
-  container: {
+  inner: {
     flex: 1,
     justifyContent: 'center',
-    padding: 20,
-  },
-
-  // Decorative orbs
-  orbContainer: {
-    ...StyleSheet.absoluteFillObject,
-    overflow: 'hidden',
-    zIndex: -1,
-  },
-  orb: {
-    position: 'absolute',
-    borderRadius: 999,
-  },
-  orbPrimary: {
-    width: 220,
-    height: 220,
-    top: -50,
-    right: -50,
-    backgroundColor: 'rgba(106, 13, 173, 0.3)',
-  },
-  orbSecondary: {
-    width: 180,
-    height: 180,
-    bottom: -40,
-    left: -40,
-    backgroundColor: 'rgba(91, 82, 255, 0.2)',
+    padding: 24,
   },
 
   // Branding
@@ -293,28 +242,49 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 32,
   },
-  title: {
+  brandIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  brandIconText: {
     fontSize: 34,
+  },
+  title: {
+    fontSize: 30,
     fontWeight: '700',
-    color: '#FFFFFF',
+    letterSpacing: -0.5,
     textAlign: 'center',
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.5)',
+    fontWeight: '400',
     textAlign: 'center',
   },
 
-  // Form Card
+  // Form
   formCard: {
+    borderRadius: 18,
     padding: 20,
-    marginBottom: 8,
+    marginBottom: 12,
+    borderWidth: 0.5,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#5E4A36',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.07,
+        shadowRadius: 10,
+      },
+      android: { elevation: 2 },
+    }),
   },
 
-  // Sign In Button
-  signInButtonWrapper: {
-    marginTop: 8,
+  // Sign In
+  signInWrapper: {
     borderRadius: 14,
     overflow: 'hidden',
   },
@@ -323,8 +293,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderRadius: 14,
   },
-  signInButtonText: {
-    color: '#FFFFFF',
+  signInText: {
+    color: '#ffffff',
     fontSize: 16,
     fontWeight: '700',
   },
@@ -337,47 +307,36 @@ const styles = StyleSheet.create({
   },
   dividerLine: {
     flex: 1,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    height: 0.5,
   },
   dividerText: {
     marginHorizontal: 16,
     fontSize: 13,
     fontWeight: '600',
-    color: 'rgba(255, 255, 255, 0.4)',
   },
 
-  // Google Button
-  socialButtonWrapper: {
+  // Social Buttons
+  socialWrapper: {
     borderRadius: 14,
     overflow: 'hidden',
     marginBottom: 12,
   },
-  googleButton: {
+  socialButton: {
     paddingVertical: 16,
     alignItems: 'center',
     borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    overflow: 'hidden',
+    borderWidth: 0.5,
   },
-  googleButtonText: {
-    color: '#FFFFFF',
+  socialText: {
     fontSize: 16,
     fontWeight: '600',
   },
-
-  // Apple Button
   appleButton: {
-    paddingVertical: 16,
-    alignItems: 'center',
-    borderRadius: 14,
     backgroundColor: '#000000',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: '#000000',
   },
-  appleButtonText: {
-    color: '#FFFFFF',
+  appleText: {
+    color: '#ffffff',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -389,10 +348,8 @@ const styles = StyleSheet.create({
   },
   linkText: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.5)',
   },
   linkTextAccent: {
-    color: ACCENT_LIGHT,
     fontWeight: '600',
   },
 });

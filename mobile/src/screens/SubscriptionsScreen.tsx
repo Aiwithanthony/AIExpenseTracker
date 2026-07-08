@@ -1,38 +1,43 @@
 import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
+import { Text } from '../components/AppText';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import * as WebBrowser from 'expo-web-browser';
+import {
+  UsersThree,
+  ChartBar,
+  Export,
+  Microphone,
+  Receipt,
+  Robot,
+  MapPin,
+  Trophy,
+  Lock,
+  CheckCircle,
+  Star,
+} from 'phosphor-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../services/api';
 import GlassCard from '../components/GlassCard';
 import AnimatedPressable from '../components/AnimatedPressable';
 
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
+const BENTO_RADIUS = 18;
 
 const PREMIUM_FEATURES = [
-  { emoji: '\uD83D\uDC65', name: 'Shared Expense Groups', premium: true },
-  { emoji: '\uD83D\uDCCA', name: 'Advanced Statistics', premium: true },
-  { emoji: '\uD83D\uDCE4', name: 'Export to CSV/JSON', premium: false },
-  { emoji: '\uD83C\uDF99\uFE0F', name: 'Voice Input', premium: false },
-  { emoji: '\uD83E\uDDFE', name: 'Receipt Scanning', premium: true },
-  { emoji: '\uD83E\uDD16', name: 'AI Chat Assistant', premium: true },
-  { emoji: '\uD83D\uDCCD', name: 'Location Tracking', premium: true },
-  { emoji: '\uD83C\uDFC6', name: 'Savings Challenges', premium: false },
+  { Icon: UsersThree, name: 'Shared Expense Groups', premium: true },
+  { Icon: ChartBar, name: 'Advanced Statistics', premium: true },
+  { Icon: Export, name: 'Export to CSV/JSON', premium: false },
+  { Icon: Microphone, name: 'Voice Input', premium: false },
+  { Icon: Receipt, name: 'Receipt Scanning', premium: true },
+  { Icon: Robot, name: 'AI Chat Assistant', premium: true },
+  { Icon: MapPin, name: 'Location Tracking', premium: true },
+  { Icon: Trophy, name: 'Savings Challenges', premium: false },
 ];
 
 interface SubscriptionStatus {
@@ -67,12 +72,27 @@ export default function SubscriptionsScreen() {
   const isPremiumActive = status?.hasActiveSubscription && status?.tier === 'premium';
   const isPremiumCanceled = !status?.hasActiveSubscription && status?.tier === 'premium';
 
-  const handleUpgrade = () => {
-    Alert.alert(
-      'Coming Soon',
-      'Premium subscriptions will be available soon through the App Store and Google Play. Stay tuned!',
-      [{ text: 'OK' }],
-    );
+  const handleUpgrade = async () => {
+    setActionLoading(true);
+    try {
+      // Open Stripe hosted Checkout in an in-app browser. Premium is activated
+      // server-side by the webhook; we re-check status when the browser closes.
+      const { url } = await api.createStripeCheckout();
+      await WebBrowser.openBrowserAsync(url);
+      await loadStatus();
+    } catch (error: any) {
+      const message: string = error?.message || '';
+      if (message.toLowerCase().includes('not configured')) {
+        Alert.alert(
+          'Payments Unavailable',
+          'Premium checkout is not configured yet. Please try again later.',
+        );
+      } else {
+        Alert.alert('Error', message || 'Could not start checkout. Please try again.');
+      }
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const handleCancel = () => {
@@ -123,25 +143,28 @@ export default function SubscriptionsScreen() {
     });
   };
 
+  const cardBg = colors.card;
+  const inputBg = colors.inputBg;
+  const borderColor = colors.border;
+  const separatorColor = colors.border;
+
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? '#0D0D0D' : colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView showsVerticalScrollIndicator={false}>
         {/* Header */}
         <Animated.View entering={FadeInDown.duration(500)}>
-          <LinearGradient
-            colors={['#1A0030', '#2D004F', ACCENT]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.header}
-          >
-            <Text style={styles.headerTitle}>{'\u2B50'} Subscription</Text>
-          </LinearGradient>
+          <View style={[styles.header, { backgroundColor: colors.background }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Star size={26} color={colors.primary} weight="fill" />
+              <Text style={[styles.headerTitle, { color: colors.text }]}>Subscription</Text>
+            </View>
+          </View>
         </Animated.View>
 
         {loading ? (
           <View style={styles.loadingWrapper}>
             <GlassCard style={styles.loadingCard} tint={isDark ? 'dark' : 'light'}>
-              <ActivityIndicator size="large" color={ACCENT} />
+              <ActivityIndicator size="large" color={colors.primary} />
               <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading plan...</Text>
             </GlassCard>
           </View>
@@ -157,14 +180,11 @@ export default function SubscriptionsScreen() {
                       <Text style={styles.freeBadgeText}>FREE</Text>
                     </View>
                   ) : (
-                    <LinearGradient
-                      colors={[ACCENT, ACCENT_LIGHT]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.tierBadge}
+                    <View
+                      style={[styles.tierBadge, { backgroundColor: colors.primary }]}
                     >
                       <Text style={styles.premiumBadgeText}>PREMIUM</Text>
-                    </LinearGradient>
+                    </View>
                   )}
                 </View>
 
@@ -172,7 +192,7 @@ export default function SubscriptionsScreen() {
                   <>
                     <View style={styles.planRow}>
                       <Text style={[styles.planRowLabel, { color: colors.textSecondary }]}>Status</Text>
-                      <Text style={[styles.planRowValue, { color: isPremiumActive ? '#34C759' : '#FF9500' }]}>
+                      <Text style={[styles.planRowValue, { color: isPremiumActive ? colors.success : '#FF9500' }]}>
                         {isPremiumActive ? 'Active' : 'Canceled'}
                       </Text>
                     </View>
@@ -192,20 +212,22 @@ export default function SubscriptionsScreen() {
             {/* Premium Features */}
             <Animated.View entering={FadeInDown.duration(500).delay(200)} style={styles.sectionWrapper}>
               <GlassCard style={styles.featuresCard} tint={isDark ? 'dark' : 'light'}>
-                <Text style={styles.sectionTitle}>FEATURES</Text>
+                <Text style={[styles.sectionTitle, { color: colors.primary }]}>FEATURES</Text>
                 {PREMIUM_FEATURES.map((feature, index) => (
                   <View key={feature.name}>
-                    {index > 0 && <View style={styles.featureSeparator} />}
+                    {index > 0 && <View style={[styles.featureSeparator, { backgroundColor: separatorColor }]} />}
                     <View style={styles.featureRow}>
                       <View style={styles.featureInfo}>
-                        <Text style={styles.featureEmoji}>{feature.emoji}</Text>
+                        <View style={{ marginRight: 12 }}>
+                          <feature.Icon size={22} color={colors.primary} weight="duotone" />
+                        </View>
                         <Text style={[styles.featureName, { color: colors.text }]}>{feature.name}</Text>
                       </View>
-                      <Text style={styles.featureIndicator}>
-                        {feature.premium
-                          ? (isFree ? '\uD83D\uDD12' : '\u2705')
-                          : '\u2705'}
-                      </Text>
+                      {feature.premium && isFree ? (
+                        <Lock size={18} color={colors.textTertiary} weight="duotone" />
+                      ) : (
+                        <CheckCircle size={18} color={colors.success} weight="duotone" />
+                      )}
                     </View>
                   </View>
                 ))}
@@ -215,48 +237,54 @@ export default function SubscriptionsScreen() {
             {/* Action Button */}
             <Animated.View entering={FadeInDown.duration(500).delay(300)} style={[styles.sectionWrapper, { marginBottom: 40 }]}>
               {isFree && (
-                <AnimatedPressable onPress={handleUpgrade} scaleValue={0.97}>
-                  <LinearGradient
-                    colors={[ACCENT, ACCENT_LIGHT]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.actionButton}
+                <AnimatedPressable onPress={handleUpgrade} disabled={actionLoading} scaleValue={0.97}>
+                  <View
+                    style={[styles.actionButton, { backgroundColor: colors.primary }, actionLoading && { opacity: 0.6 }]}
                   >
-                    <Text style={styles.actionButtonText}>{'\u2B50'} Upgrade to Premium</Text>
-                  </LinearGradient>
+                    {actionLoading ? (
+                      <ActivityIndicator color="#FFFFFF" />
+                    ) : (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Star size={20} color="#FFFFFF" weight="fill" />
+                        <Text style={styles.actionButtonText}>Upgrade to Premium</Text>
+                      </View>
+                    )}
+                  </View>
                 </AnimatedPressable>
               )}
 
               {isPremiumActive && (
                 <AnimatedPressable onPress={handleCancel} disabled={actionLoading} scaleValue={0.97}>
-                  <BlurView
-                    intensity={GLASS.blurIntensity}
-                    tint={isDark ? 'dark' : 'light'}
-                    style={[styles.cancelButton, actionLoading && { opacity: 0.6 }]}
+                  <View
+                    style={[
+                      styles.cancelButton,
+                      {
+                        backgroundColor: cardBg,
+                        borderColor: 'rgba(255, 59, 48, 0.3)',
+                      },
+                      actionLoading && { opacity: 0.6 },
+                    ]}
                   >
                     {actionLoading ? (
                       <ActivityIndicator color="#FF3B30" />
                     ) : (
-                      <Text style={styles.cancelButtonText}>Cancel Subscription</Text>
+                      <Text style={[styles.cancelButtonText, { color: colors.error }]}>Cancel Subscription</Text>
                     )}
-                  </BlurView>
+                  </View>
                 </AnimatedPressable>
               )}
 
               {isPremiumCanceled && (
                 <AnimatedPressable onPress={handleReactivate} disabled={actionLoading} scaleValue={0.97}>
-                  <LinearGradient
-                    colors={[ACCENT, ACCENT_LIGHT]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[styles.actionButton, actionLoading && { opacity: 0.6 }]}
+                  <View
+                    style={[styles.actionButton, { backgroundColor: colors.primary }, actionLoading && { opacity: 0.6 }]}
                   >
                     {actionLoading ? (
                       <ActivityIndicator color="#FFFFFF" />
                     ) : (
                       <Text style={styles.actionButtonText}>Reactivate Subscription</Text>
                     )}
-                  </LinearGradient>
+                  </View>
                 </AnimatedPressable>
               )}
             </Animated.View>
@@ -275,13 +303,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 24,
     paddingBottom: 24,
-    borderBottomLeftRadius: GLASS.borderRadius,
-    borderBottomRightRadius: GLASS.borderRadius,
   },
   headerTitle: {
     fontSize: 30,
     fontWeight: 'bold',
-    color: '#FFFFFF',
   },
   loadingWrapper: {
     paddingHorizontal: 16,
@@ -303,7 +328,6 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 13,
     fontWeight: '700',
-    color: ACCENT_LIGHT,
     letterSpacing: 1.5,
     textTransform: 'uppercase',
     marginBottom: 14,
@@ -384,11 +408,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   featureSeparator: {
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    height: StyleSheet.hairlineWidth,
   },
   actionButton: {
-    borderRadius: GLASS.borderRadius,
+    borderRadius: BENTO_RADIUS,
     paddingVertical: 18,
     alignItems: 'center',
     justifyContent: 'center',
@@ -400,17 +423,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   cancelButton: {
-    borderRadius: GLASS.borderRadius,
+    borderRadius: BENTO_RADIUS,
     paddingVertical: 18,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 56,
     borderWidth: 1,
-    borderColor: 'rgba(255, 59, 48, 0.3)',
     overflow: 'hidden',
   },
   cancelButtonText: {
-    color: '#FF3B30',
     fontSize: 17,
     fontWeight: '700',
   },

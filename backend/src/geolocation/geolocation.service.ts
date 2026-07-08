@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { User } from '../entities/user.entity';
+import { LocationRule } from '../entities/location-rule.entity';
 
 export interface LocationData {
   latitude: number;
@@ -10,24 +10,23 @@ export interface LocationData {
   timestamp: Date;
 }
 
-export interface LocationRule {
-  userId: string;
-  locationType: 'coffee_shop' | 'restaurant' | 'grocery' | 'mall' | 'supermarket' | 'custom';
+export interface CreateLocationRuleInput {
+  name?: string;
+  locationType: LocationRule['locationType'];
   latitude: number;
   longitude: number;
-  radius: number; // in meters
-  minTimeSpent: number; // in minutes
+  radius: number; // meters
+  minTimeSpent: number; // minutes
   enabled: boolean;
 }
 
 @Injectable()
 export class GeolocationService {
   private readonly logger = new Logger(GeolocationService.name);
-  private readonly locationRules: Map<string, LocationRule[]> = new Map();
 
   constructor(
-    @InjectRepository(User)
-    private usersRepository: Repository<User>,
+    @InjectRepository(LocationRule)
+    private locationRulesRepository: Repository<LocationRule>,
   ) {}
 
   /**
@@ -54,38 +53,66 @@ export class GeolocationService {
   }
 
   /**
-   * Check if location matches a known place type
+   * Check if location matches a known place type.
+   * Placeholder until a Places API (e.g. Google Places) is wired in.
    */
   async checkLocationType(
-    latitude: number,
-    longitude: number,
+    _latitude: number,
+    _longitude: number,
   ): Promise<string | null> {
-    // TODO: Integrate with Google Places API or similar to detect location type
-    // For now, return null - this would be implemented with a places API
     return null;
   }
 
   /**
-   * Create a location rule for expense reminders
+   * Create a persisted location rule for expense reminders.
    */
-  async createLocationRule(userId: string, rule: Omit<LocationRule, 'userId'>): Promise<LocationRule> {
-    const fullRule: LocationRule = {
-      ...rule,
+  async createLocationRule(
+    userId: string,
+    input: CreateLocationRuleInput,
+  ): Promise<LocationRule> {
+    const rule = this.locationRulesRepository.create({
       userId,
-    };
-
-    const userRules = this.locationRules.get(userId) || [];
-    userRules.push(fullRule);
-    this.locationRules.set(userId, userRules);
-
-    return fullRule;
+      name: input.name ?? '',
+      locationType: input.locationType,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      radius: input.radius,
+      minTimeSpent: input.minTimeSpent,
+      enabled: input.enabled,
+    });
+    return this.locationRulesRepository.save(rule);
   }
 
   /**
-   * Get location rules for a user
+   * Get location rules for a user.
    */
   async getLocationRules(userId: string): Promise<LocationRule[]> {
-    return this.locationRules.get(userId) || [];
+    return this.locationRulesRepository.find({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async updateLocationRule(
+    userId: string,
+    id: string,
+    updates: Partial<CreateLocationRuleInput>,
+  ): Promise<LocationRule> {
+    const rule = await this.locationRulesRepository.findOne({
+      where: { id, userId },
+    });
+    if (!rule) {
+      throw new NotFoundException('Location rule not found');
+    }
+    Object.assign(rule, updates);
+    return this.locationRulesRepository.save(rule);
+  }
+
+  async deleteLocationRule(userId: string, id: string): Promise<void> {
+    const result = await this.locationRulesRepository.delete({ id, userId });
+    if (!result.affected) {
+      throw new NotFoundException('Location rule not found');
+    }
   }
 
   /**
@@ -118,12 +145,14 @@ export class GeolocationService {
   }
 
   /**
-   * Track user location entry (called from mobile app)
+   * Track user location entry (called from mobile app).
+   * Entry/exit timing is currently computed client-side and passed to
+   * trackLocationExit; we simply log entries server-side.
    */
   async trackLocationEntry(userId: string, location: LocationData): Promise<void> {
-    // Store location entry timestamp
-    // In production, you'd store this in a database table
-    this.logger.log(`Location entry tracked for user ${userId} at ${location.latitude}, ${location.longitude}`);
+    this.logger.log(
+      `Location entry tracked for user ${userId} at ${location.latitude}, ${location.longitude}`,
+    );
   }
 
   /**
@@ -138,7 +167,10 @@ export class GeolocationService {
     const timeSpent = (exitTime.getTime() - entryTime.getTime()) / (1000 * 60); // minutes
 
     const shouldRemind = await this.shouldSendReminder(userId, location, timeSpent);
-    const locationType = await this.checkLocationType(location.latitude, location.longitude);
+    const locationType = await this.checkLocationType(
+      location.latitude,
+      location.longitude,
+    );
 
     return {
       shouldRemind,
@@ -146,4 +178,3 @@ export class GeolocationService {
     };
   }
 }
-

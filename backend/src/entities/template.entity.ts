@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 import { Category } from './category.entity';
+import { DecimalTransformer } from '../common/transformers/decimal.transformer';
 
 export enum TemplateType {
   EXPENSE = 'expense',
@@ -26,7 +27,7 @@ export class Template {
   @Column()
   name: string; // e.g., "Morning Coffee", "Salary"
 
-  @Column('decimal', { precision: 18, scale: 2 })
+  @Column('decimal', { precision: 18, scale: 2, transformer: DecimalTransformer })
   amount: number;
 
   @Column()

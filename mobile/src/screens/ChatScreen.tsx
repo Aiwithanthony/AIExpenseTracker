@@ -1,8 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
-  Text,
-  TextInput,
   StyleSheet,
   FlatList,
   KeyboardAvoidingView,
@@ -10,26 +8,15 @@ import {
   ActivityIndicator,
   Keyboard,
 } from 'react-native';
+import { Text, TextInput } from '../components/AppText';
 // SafeAreaView import removed — this screen is inside a stack navigator with a visible header
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import { api } from '../services/api';
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import AnimatedPressable from '../components/AnimatedPressable';
 
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  borderColorStrong: 'rgba(255, 255, 255, 0.3)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  bgMedium: 'rgba(255, 255, 255, 0.12)',
-  bgDark: 'rgba(0, 0, 0, 0.2)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
+const BENTO_RADIUS = 18;
 
 interface Message {
   id: string;
@@ -51,7 +38,6 @@ export default function ChatScreen({ navigation }: any) {
   ]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
-  const [recording, setRecording] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
@@ -90,22 +76,6 @@ export default function ChatScreen({ navigation }: any) {
     }
   }, [messages]);
 
-  const startVoiceRecording = async () => {
-    // Voice recording will be implemented with speech-to-text integration
-    // For now, show a message that voice input is coming soon
-    setRecording(true);
-    // TODO: Implement speech-to-text integration
-    setTimeout(() => {
-      setRecording(false);
-      // Placeholder: In the future, this will convert voice to text
-      // For now, users can type their questions
-    }, 1000);
-  };
-
-  const stopVoiceRecording = async () => {
-    setRecording(false);
-    // TODO: Implement speech-to-text when ready
-  };
 
   const sendMessage = async (text?: string) => {
     const question = text || inputText.trim();
@@ -144,6 +114,10 @@ export default function ChatScreen({ navigation }: any) {
     }
   };
 
+  const cardBg = colors.card;
+  const inputBg = colors.inputBg;
+  const borderColor = colors.border;
+
   const renderMessage = ({ item, index }: { item: Message; index: number }) => (
     <Animated.View
       entering={item.isUser ? FadeInUp.duration(350).delay(50) : FadeInDown.duration(350).delay(50)}
@@ -153,26 +127,30 @@ export default function ChatScreen({ navigation }: any) {
       ]}
     >
       {item.isUser ? (
-        <LinearGradient
-          colors={[ACCENT, ACCENT_LIGHT]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.userBubbleGradient}
+        <View
+          style={[
+            styles.userBubble,
+            { backgroundColor: colors.primary },
+          ]}
         >
           <Text style={styles.userMessageText}>
             {item.text}
           </Text>
-        </LinearGradient>
+        </View>
       ) : (
-        <BlurView
-          intensity={40}
-          tint={isDark ? 'dark' : 'light'}
-          style={styles.assistantBubbleBlur}
+        <View
+          style={[
+            styles.assistantBubble,
+            {
+              backgroundColor: cardBg,
+              borderColor: borderColor,
+            },
+          ]}
         >
           <Text style={[styles.messageText, { color: colors.text }]}>
             {item.text}
           </Text>
-        </BlurView>
+        </View>
       )}
     </Animated.View>
   );
@@ -184,16 +162,19 @@ export default function ChatScreen({ navigation }: any) {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        {/* Header with LinearGradient */}
-        <LinearGradient
-          colors={['#1a0a2e', '#2d1052', '#1a0a2e']}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.header}
+        {/* Header */}
+        <View
+          style={[
+            styles.header,
+            {
+              backgroundColor: colors.background,
+              borderBottomColor: borderColor,
+            },
+          ]}
         >
-          <Text style={styles.headerTitle}>AI Assistant</Text>
-          <Text style={styles.headerSubtitle}>Ask me about your spending</Text>
-        </LinearGradient>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>AI Assistant</Text>
+          <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>Ask me about your spending</Text>
+        </View>
 
         <FlatList
           ref={flatListRef}
@@ -205,54 +186,47 @@ export default function ChatScreen({ navigation }: any) {
           onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
+          ListFooterComponent={
+            loading ? (
+              <View style={[styles.messageContainer, styles.assistantMessage]}>
+                <View
+                  style={[
+                    styles.assistantBubble,
+                    {
+                      backgroundColor: cardBg,
+                      borderColor: borderColor,
+                    },
+                  ]}
+                >
+                  <ActivityIndicator size="small" color={colors.textSecondary} />
+                </View>
+              </View>
+            ) : null
+          }
         />
 
-        {/* Input area wrapped in BlurView */}
-        <BlurView
-          intensity={GLASS.blurIntensity}
-          tint={isDark ? 'dark' : 'light'}
+        {/* Input area */}
+        <View
           style={[
-            styles.inputContainerBlur,
+            styles.inputContainer,
             {
-              borderTopColor: GLASS.borderColor,
+              backgroundColor: colors.background,
+              borderTopColor: borderColor,
               paddingBottom: Math.max(insets.bottom, 12),
               ...(Platform.OS === 'android' && keyboardHeight > 0 && { marginBottom: keyboardHeight - insets.bottom })
             }
           ]}
         >
           <View style={styles.inputRow}>
-            {/* Voice button */}
-            <AnimatedPressable
-              onPress={recording ? stopVoiceRecording : startVoiceRecording}
-              disabled={loading}
-              scaleValue={0.9}
-              style={styles.voiceButtonWrapper}
-            >
-              <BlurView
-                intensity={40}
-                tint={isDark ? 'dark' : 'light'}
-                style={[
-                  styles.voiceButton,
-                  {
-                    borderColor: recording ? colors.error : ACCENT,
-                  },
-                  recording && { borderColor: colors.error },
-                ]}
-              >
-                <Text style={styles.voiceButtonText}>
-                  {recording ? '\uD83C\uDFA4' : '\uD83C\uDFA4'}
-                </Text>
-              </BlurView>
-            </AnimatedPressable>
-
-            {/* Text input with glass styling */}
+            {/* Text input */}
             <View style={styles.inputFieldWrapper}>
-              <BlurView
-                intensity={30}
-                tint={isDark ? 'dark' : 'light'}
+              <View
                 style={[
-                  styles.inputBlurBackground,
-                  { borderColor: GLASS.borderColor },
+                  styles.inputBackground,
+                  {
+                    backgroundColor: inputBg,
+                    borderColor: borderColor,
+                  },
                 ]}
               >
                 <TextInput
@@ -262,15 +236,15 @@ export default function ChatScreen({ navigation }: any) {
                   value={inputText}
                   onChangeText={setInputText}
                   multiline
-                  editable={!loading && !recording}
+                  editable={!loading}
                 />
-              </BlurView>
+              </View>
             </View>
 
             {/* Send button */}
             <AnimatedPressable
               onPress={() => sendMessage()}
-              disabled={!inputText.trim() || loading || recording}
+              disabled={!inputText.trim() || loading}
               scaleValue={0.9}
               style={styles.sendButtonWrapper}
             >
@@ -279,7 +253,10 @@ export default function ChatScreen({ navigation }: any) {
                   style={[
                     styles.sendButton,
                     styles.sendButtonDisabled,
-                    { backgroundColor: GLASS.bgMedium, borderColor: GLASS.borderColor },
+                    {
+                      backgroundColor: inputBg,
+                      borderColor: borderColor,
+                    },
                   ]}
                 >
                   {loading ? (
@@ -289,18 +266,18 @@ export default function ChatScreen({ navigation }: any) {
                   )}
                 </View>
               ) : (
-                <LinearGradient
-                  colors={[ACCENT, ACCENT_LIGHT]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={styles.sendButton}
+                <View
+                  style={[
+                    styles.sendButton,
+                    { backgroundColor: colors.primary },
+                  ]}
                 >
                   <Text style={[styles.sendButtonText, { color: '#fff' }]}>Send</Text>
-                </LinearGradient>
+                </View>
               )}
             </AnimatedPressable>
           </View>
-        </BlurView>
+        </View>
       </KeyboardAvoidingView>
     </View>
   );
@@ -312,18 +289,15 @@ const styles = StyleSheet.create({
   },
   header: {
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    borderBottomWidth: 0.5,
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 4,
-    color: '#ffffff',
   },
   headerSubtitle: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.7)',
   },
   messagesList: {
     padding: 16,
@@ -339,18 +313,16 @@ const styles = StyleSheet.create({
   assistantMessage: {
     alignSelf: 'flex-start',
   },
-  userBubbleGradient: {
+  userBubble: {
     padding: 12,
-    borderRadius: 16,
+    borderRadius: BENTO_RADIUS,
     borderBottomRightRadius: 4,
   },
-  assistantBubbleBlur: {
+  assistantBubble: {
     padding: 12,
-    borderRadius: 16,
+    borderRadius: BENTO_RADIUS,
     borderBottomLeftRadius: 4,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 0.5,
   },
   messageText: {
     fontSize: 16,
@@ -359,38 +331,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#fff',
   },
-  inputContainerBlur: {
-    borderTopWidth: 1,
-    overflow: 'hidden',
+  inputContainer: {
+    borderTopWidth: 0.5,
     padding: 12,
   },
   inputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
   },
-  voiceButtonWrapper: {
-    marginRight: 8,
-  },
-  voiceButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    overflow: 'hidden',
-  },
-  voiceButtonText: {
-    fontSize: 20,
-  },
   inputFieldWrapper: {
     flex: 1,
     marginRight: 8,
   },
-  inputBlurBackground: {
+  inputBackground: {
     borderRadius: 20,
-    overflow: 'hidden',
-    borderWidth: 1,
+    borderWidth: 0.5,
   },
   input: {
     paddingHorizontal: 16,
@@ -408,10 +363,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     minWidth: 60,
-    overflow: 'hidden',
   },
   sendButtonDisabled: {
-    borderWidth: 1,
+    borderWidth: 0.5,
   },
   sendButtonText: {
     fontWeight: '600',

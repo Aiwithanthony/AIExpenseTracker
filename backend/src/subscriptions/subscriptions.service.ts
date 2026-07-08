@@ -13,7 +13,15 @@ export class SubscriptionsService {
     private usersRepository: Repository<User>,
   ) {}
 
-  async create(userId: string, tier: SubscriptionTier): Promise<Subscription> {
+  async create(
+    userId: string,
+    tier: SubscriptionTier,
+    options?: {
+      stripeSubscriptionId?: string;
+      paymentMethod?: string;
+      currentPeriodEnd?: Date;
+    },
+  ): Promise<Subscription> {
     const user = await this.usersRepository.findOne({ where: { id: userId } });
     if (!user) {
       throw new NotFoundException('User not found');
@@ -25,8 +33,11 @@ export class SubscriptionsService {
     });
 
     const now = new Date();
-    const periodEnd = new Date();
-    periodEnd.setMonth(periodEnd.getMonth() + 1); // 1 month subscription
+    const periodEnd = options?.currentPeriodEnd ?? (() => {
+      const d = new Date();
+      d.setMonth(d.getMonth() + 1); // default: 1 month
+      return d;
+    })();
 
     if (subscription) {
       subscription.tier = tier;
@@ -45,12 +56,82 @@ export class SubscriptionsService {
       });
     }
 
+    if (options?.stripeSubscriptionId) {
+      subscription.stripeSubscriptionId = options.stripeSubscriptionId;
+    }
+    if (options?.paymentMethod) {
+      subscription.paymentMethod = options.paymentMethod;
+    }
+
     // Update user subscription tier
     user.subscriptionTier = tier;
     user.subscriptionExpiresAt = periodEnd;
     await this.usersRepository.save(user);
 
     return this.subscriptionsRepository.save(subscription);
+  }
+
+  /**
+   * Sync a subscription's state from a Stripe `customer.subscription.updated`
+   * event, keeping the user's tier and expiry in step.
+   */
+  async syncFromStripe(
+    stripeSubscriptionId: string,
+    update: {
+      status: SubscriptionStatus;
+      currentPeriodEnd?: Date;
+      cancelAtPeriodEnd?: boolean;
+    },
+  ): Promise<void> {
+    const subscription = await this.subscriptionsRepository.findOne({
+      where: { stripeSubscriptionId },
+      relations: ['user'],
+    });
+    if (!subscription) {
+      return;
+    }
+
+    subscription.status = update.status;
+    if (update.currentPeriodEnd) {
+      subscription.currentPeriodEnd = update.currentPeriodEnd;
+    }
+    if (typeof update.cancelAtPeriodEnd === 'boolean') {
+      subscription.cancelAtPeriodEnd = update.cancelAtPeriodEnd;
+    }
+    await this.subscriptionsRepository.save(subscription);
+
+    if (subscription.user) {
+      const active = subscription.status === SubscriptionStatus.ACTIVE;
+      subscription.user.subscriptionTier = active
+        ? subscription.tier
+        : SubscriptionTier.FREE;
+      subscription.user.subscriptionExpiresAt = subscription.currentPeriodEnd;
+      await this.usersRepository.save(subscription.user);
+    }
+  }
+
+  /**
+   * Handle a Stripe `customer.subscription.deleted` event: cancel locally and
+   * downgrade the user to FREE.
+   */
+  async deactivateByStripeSubscriptionId(
+    stripeSubscriptionId: string,
+  ): Promise<void> {
+    const subscription = await this.subscriptionsRepository.findOne({
+      where: { stripeSubscriptionId },
+      relations: ['user'],
+    });
+    if (!subscription) {
+      return;
+    }
+
+    subscription.status = SubscriptionStatus.CANCELED;
+    await this.subscriptionsRepository.save(subscription);
+
+    if (subscription.user) {
+      subscription.user.subscriptionTier = SubscriptionTier.FREE;
+      await this.usersRepository.save(subscription.user);
+    }
   }
 
   async findOne(userId: string): Promise<Subscription | null> {

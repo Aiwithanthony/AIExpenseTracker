@@ -1,7 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   FlatList,
   ActivityIndicator,
@@ -11,26 +10,20 @@ import {
   Platform,
   RefreshControl,
 } from 'react-native';
+import { Text } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
+import { UsersThree } from 'phosphor-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import GlassCard from '../components/GlassCard';
 import GlassInput from '../components/GlassInput';
 import AnimatedPressable from '../components/AnimatedPressable';
+import { useCachedFetch } from '../hooks/useCachedFetch';
 
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
+const BENTO_RADIUS = 18;
 
 interface Group {
   id: string;
@@ -46,9 +39,6 @@ export default function GroupsScreen({ navigation }: any) {
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
 
-  const [groups, setGroups] = useState<Group[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [newGroupName, setNewGroupName] = useState('');
@@ -57,44 +47,33 @@ export default function GroupsScreen({ navigation }: any) {
   const [joinCode, setJoinCode] = useState('');
   const [creating, setCreating] = useState(false);
   const [joining, setJoining] = useState(false);
-  const [isPremium, setIsPremium] = useState<boolean | null>(null);
 
-  const loadGroups = useCallback(async () => {
-    try {
-      const [groupsData, subStatus] = await Promise.all([
-        api.getGroups(),
-        api.getSubscriptionStatus().catch(() => ({ hasActiveSubscription: false, tier: 'free', expiresAt: null })),
-      ]);
-      setGroups(Array.isArray(groupsData) ? groupsData : []);
-      setIsPremium((subStatus as any).hasActiveSubscription || (subStatus as any).tier === 'premium');
-    } catch (error: any) {
-      setGroups([]);
-      setIsPremium(false);
-    }
-  }, []);
+  // Cached: instant render on tab re-entry, silent refresh in the background.
+  const { data, loading, refreshing, refresh } = useCachedFetch<{
+    groups: Group[];
+    isPremium: boolean;
+  }>('groups:list', async () => {
+    const [groupsData, subStatus] = await Promise.all([
+      api.getGroups(),
+      api.getSubscriptionStatus().catch(() => ({ hasActiveSubscription: false, tier: 'free', expiresAt: null })),
+    ]);
+    return {
+      groups: Array.isArray(groupsData) ? (groupsData as Group[]) : [],
+      isPremium:
+        (subStatus as any).hasActiveSubscription || (subStatus as any).tier === 'premium',
+    };
+  });
 
-  const initialLoad = useCallback(async () => {
-    setLoading(true);
-    await loadGroups();
-    setLoading(false);
-  }, [loadGroups]);
+  const groups = data?.groups ?? [];
+  const isPremium: boolean | null = data ? data.isPremium : null;
 
-  const onRefresh = useCallback(async () => {
-    setRefreshing(true);
-    await loadGroups();
-    setRefreshing(false);
-  }, [loadGroups]);
-
-  useFocusEffect(
-    useCallback(() => {
-      initialLoad();
-    }, [initialLoad]),
-  );
+  const loadGroups = refresh;
+  const onRefresh = refresh;
 
   const handleCreateGroup = async () => {
     const trimmed = newGroupName.trim();
     if (!trimmed) {
-      Alert.alert('Error', 'Please enter a group name');
+      Alert.alert('Missing Name', 'Please enter a group name');
       return;
     }
     setCreating(true);
@@ -110,7 +89,7 @@ export default function GroupsScreen({ navigation }: any) {
       setShowCreateModal(false);
       await loadGroups();
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to create group');
+      Alert.alert('Could Not Create Group', error.message || 'Failed to create group');
     } finally {
       setCreating(false);
     }
@@ -119,7 +98,7 @@ export default function GroupsScreen({ navigation }: any) {
   const handleJoinGroup = async () => {
     const trimmed = joinCode.trim();
     if (!trimmed) {
-      Alert.alert('Error', 'Please enter an invite code');
+      Alert.alert('Missing Code', 'Please enter an invite code');
       return;
     }
     setJoining(true);
@@ -194,60 +173,52 @@ export default function GroupsScreen({ navigation }: any) {
               {item.baseCurrency ? ` \u00B7 ${item.baseCurrency}` : ''}
             </Text>
           </View>
-          <Text style={styles.chevron}>{'\u203A'}</Text>
+          <Text style={[styles.chevron, { color: colors.textTertiary }]}>{'\u203A'}</Text>
         </GlassCard>
       </AnimatedPressable>
     </Animated.View>
   );
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? '#0D0D0D' : colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
+      <SafeAreaView edges={['top']} style={{ backgroundColor: colors.background }}>
         <Animated.View entering={FadeInDown.duration(500)}>
-          <LinearGradient
-            colors={['#1A0030', '#2D004F', ACCENT]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.header}
-          >
-            <Text style={styles.title}>{'\uD83D\uDC65'} Groups</Text>
-          </LinearGradient>
+          <View style={styles.header}>
+            <Text style={[styles.title, { color: colors.text }]}>Groups</Text>
+          </View>
         </Animated.View>
       </SafeAreaView>
 
       {loading ? (
         <View style={styles.centerContainer}>
           <GlassCard style={styles.loadingCard} tint={isDark ? 'dark' : 'light'}>
-            <ActivityIndicator size="large" color={ACCENT} />
+            <ActivityIndicator size="large" color={colors.primary} />
             <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading groups...</Text>
           </GlassCard>
         </View>
       ) : groups.length === 0 ? (
         <View style={styles.centerContainer}>
           <GlassCard style={styles.emptyCard} tint={isDark ? 'dark' : 'light'}>
-            <Text style={styles.emptyEmoji}>{'\uD83D\uDC65'}</Text>
+            <View style={styles.emptyEmoji}>
+              <UsersThree size={44} color={colors.textTertiary} weight="duotone" />
+            </View>
             <Text style={[styles.emptyTitle, { color: colors.text }]}>No Groups Yet</Text>
             <Text style={[styles.emptyMessage, { color: colors.textSecondary }]}>
               Create a group to start tracking shared expenses, or join an existing one with an invite code.
             </Text>
             <AnimatedPressable onPress={handlePressCreate} scaleValue={0.97} style={styles.emptyCta}>
-              <LinearGradient
-                colors={[ACCENT, ACCENT_LIGHT]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.ctaButton}
-              >
+              <View style={[styles.ctaButton, { backgroundColor: colors.primary }]}>
                 <Text style={styles.ctaText}>Create Your First Group</Text>
-              </LinearGradient>
+              </View>
             </AnimatedPressable>
             <AnimatedPressable
               onPress={() => { setJoinCode(''); setShowJoinModal(true); }}
               scaleValue={0.97}
               style={[styles.emptyCta, { marginTop: 12 }]}
             >
-              <View style={[styles.ctaButton, styles.joinButton, { borderColor: ACCENT_LIGHT }]}>
-                <Text style={[styles.ctaText, { color: ACCENT_LIGHT }]}>Join with Invite Code</Text>
+              <View style={[styles.ctaButton, styles.joinButton, { borderColor: colors.primary }]}>
+                <Text style={[styles.ctaText, { color: colors.primary }]}>Join with Invite Code</Text>
               </View>
             </AnimatedPressable>
           </GlassCard>
@@ -263,8 +234,8 @@ export default function GroupsScreen({ navigation }: any) {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={onRefresh}
-              tintColor={ACCENT}
-              colors={[ACCENT]}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
             />
           }
         />
@@ -275,19 +246,14 @@ export default function GroupsScreen({ navigation }: any) {
         <View style={styles.fabContainer}>
           <View style={styles.fabRow}>
             <AnimatedPressable onPress={() => { setJoinCode(''); setShowJoinModal(true); }} scaleValue={0.95} style={styles.fabHalf}>
-              <View style={[styles.fabOutline, { borderColor: ACCENT_LIGHT }]}>
-                <Text style={[styles.fabText, { color: ACCENT_LIGHT }]}>Join Group</Text>
+              <View style={[styles.fabOutline, { borderColor: colors.primary, backgroundColor: `${colors.primary}14` }]}>
+                <Text style={[styles.fabText, { color: colors.primary }]}>Join Group</Text>
               </View>
             </AnimatedPressable>
             <AnimatedPressable onPress={handlePressCreate} scaleValue={0.95} style={styles.fabHalf}>
-              <LinearGradient
-                colors={[ACCENT, ACCENT_LIGHT]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.fab}
-              >
+              <View style={[styles.fab, { backgroundColor: colors.primary }]}>
                 <Text style={styles.fabText}>+ New Group</Text>
-              </LinearGradient>
+              </View>
             </AnimatedPressable>
           </View>
         </View>
@@ -304,22 +270,18 @@ export default function GroupsScreen({ navigation }: any) {
           style={styles.modalOverlay}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <BlurView
-            intensity={isDark ? 80 : 50}
-            tint={isDark ? 'dark' : 'light'}
-            style={[
-              styles.modalContent,
-              { backgroundColor: isDark ? 'rgba(20,10,40,0.9)' : 'rgba(255,255,255,0.9)' },
-            ]}
-          >
-            <View style={[styles.modalHeader, { borderBottomColor: GLASS.borderColor }]}>
+          <View style={[
+            styles.modalContent,
+            { backgroundColor: colors.card },
+          ]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
               <Text style={[styles.modalTitle, { color: colors.text }]}>Create Group</Text>
               <AnimatedPressable
                 onPress={() => !creating && setShowCreateModal(false)}
                 scaleValue={0.9}
                 style={styles.modalCancelButton}
               >
-                <Text style={styles.modalCancelText}>Cancel</Text>
+                <Text style={[styles.modalCancelText, { color: colors.primary }]}>Cancel</Text>
               </AnimatedPressable>
             </View>
 
@@ -329,7 +291,7 @@ export default function GroupsScreen({ navigation }: any) {
                 isDark={isDark}
                 textColor={colors.text}
                 labelColor={colors.textSecondary}
-                placeholderColor={colors.textSecondary}
+                placeholderColor={colors.textTertiary}
                 placeholder="e.g. Roommates, Trip to Paris"
                 value={newGroupName}
                 onChangeText={setNewGroupName}
@@ -342,7 +304,7 @@ export default function GroupsScreen({ navigation }: any) {
                   isDark={isDark}
                   textColor={colors.text}
                   labelColor={colors.textSecondary}
-                  placeholderColor={colors.textSecondary}
+                  placeholderColor={colors.textTertiary}
                   placeholder="e.g. Shared expenses for our trip"
                   value={newGroupDescription}
                   onChangeText={setNewGroupDescription}
@@ -355,7 +317,7 @@ export default function GroupsScreen({ navigation }: any) {
                   isDark={isDark}
                   textColor={colors.text}
                   labelColor={colors.textSecondary}
-                  placeholderColor={colors.textSecondary}
+                  placeholderColor={colors.textTertiary}
                   placeholder="USD"
                   value={newGroupCurrency}
                   onChangeText={setNewGroupCurrency}
@@ -369,21 +331,16 @@ export default function GroupsScreen({ navigation }: any) {
                 scaleValue={0.97}
                 style={{ marginTop: 16 }}
               >
-                <LinearGradient
-                  colors={[ACCENT, ACCENT_LIGHT]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={[styles.saveButton, creating && { opacity: 0.6 }]}
-                >
+                <View style={[styles.saveButton, { backgroundColor: colors.primary }, creating && { opacity: 0.6 }]}>
                   {creating ? (
                     <ActivityIndicator color="#FFFFFF" />
                   ) : (
                     <Text style={styles.saveButtonText}>Create Group</Text>
                   )}
-                </LinearGradient>
+                </View>
               </AnimatedPressable>
             </View>
-          </BlurView>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -398,22 +355,18 @@ export default function GroupsScreen({ navigation }: any) {
           style={styles.modalOverlay}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <BlurView
-            intensity={isDark ? 80 : 50}
-            tint={isDark ? 'dark' : 'light'}
-            style={[
-              styles.modalContent,
-              { backgroundColor: isDark ? 'rgba(20,10,40,0.9)' : 'rgba(255,255,255,0.9)' },
-            ]}
-          >
-            <View style={[styles.modalHeader, { borderBottomColor: GLASS.borderColor }]}>
+          <View style={[
+            styles.modalContent,
+            { backgroundColor: colors.card },
+          ]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
               <Text style={[styles.modalTitle, { color: colors.text }]}>Join Group</Text>
               <AnimatedPressable
                 onPress={() => !joining && setShowJoinModal(false)}
                 scaleValue={0.9}
                 style={styles.modalCancelButton}
               >
-                <Text style={styles.modalCancelText}>Cancel</Text>
+                <Text style={[styles.modalCancelText, { color: colors.primary }]}>Cancel</Text>
               </AnimatedPressable>
             </View>
 
@@ -423,7 +376,7 @@ export default function GroupsScreen({ navigation }: any) {
                 isDark={isDark}
                 textColor={colors.text}
                 labelColor={colors.textSecondary}
-                placeholderColor={colors.textSecondary}
+                placeholderColor={colors.textTertiary}
                 placeholder="Enter 6-character code"
                 value={joinCode}
                 onChangeText={setJoinCode}
@@ -437,21 +390,16 @@ export default function GroupsScreen({ navigation }: any) {
                 scaleValue={0.97}
                 style={{ marginTop: 16 }}
               >
-                <LinearGradient
-                  colors={[ACCENT, ACCENT_LIGHT]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={[styles.saveButton, joining && { opacity: 0.6 }]}
-                >
+                <View style={[styles.saveButton, { backgroundColor: colors.primary }, joining && { opacity: 0.6 }]}>
                   {joining ? (
                     <ActivityIndicator color="#FFFFFF" />
                   ) : (
                     <Text style={styles.saveButtonText}>Join Group</Text>
                   )}
-                </LinearGradient>
+                </View>
               </AnimatedPressable>
             </View>
-          </BlurView>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
     </View>
@@ -464,15 +412,13 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 24,
-    borderBottomLeftRadius: GLASS.borderRadius,
-    borderBottomRightRadius: GLASS.borderRadius,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
   title: {
-    fontSize: 30,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontSize: 34,
+    fontWeight: '700',
+    letterSpacing: -0.5,
   },
   centerContainer: {
     flex: 1,
@@ -511,7 +457,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   ctaButton: {
-    borderRadius: GLASS.borderRadius,
+    borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
   },
@@ -554,7 +500,7 @@ const styles = StyleSheet.create({
   },
   chevron: {
     fontSize: 22,
-    color: ACCENT_LIGHT,
+    color: '#86868b',
     fontWeight: '300',
   },
   fabContainer: {
@@ -571,16 +517,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   fab: {
-    borderRadius: GLASS.borderRadius,
+    borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
   },
   fabOutline: {
-    borderRadius: GLASS.borderRadius,
+    borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
     borderWidth: 1.5,
-    backgroundColor: 'rgba(106, 13, 173, 0.1)',
   },
   fabText: {
     color: '#FFFFFF',
@@ -595,19 +540,16 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   modalContent: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: GLASS.borderColor,
-    borderBottomWidth: 0,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 20,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0.5,
   },
   modalTitle: {
     fontSize: 20,
@@ -620,14 +562,13 @@ const styles = StyleSheet.create({
   },
   modalCancelText: {
     fontSize: 16,
-    fontWeight: '400',
-    color: ACCENT_LIGHT,
+    fontWeight: '500',
   },
   modalBody: {
     padding: 20,
   },
   saveButton: {
-    borderRadius: GLASS.borderRadius,
+    borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',

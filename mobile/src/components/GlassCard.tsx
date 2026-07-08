@@ -1,15 +1,14 @@
 import React from 'react';
-import { StyleSheet, ViewStyle, StyleProp } from 'react-native';
-import { BlurView } from 'expo-blur';
+import { View, StyleSheet, ViewStyle, StyleProp, Platform } from 'react-native';
 import AnimatedPressable from './AnimatedPressable';
 
 interface GlassCardProps {
   children: React.ReactNode;
   /** Additional styles applied to the outer card container */
   style?: StyleProp<ViewStyle>;
-  /** Blur intensity (0-100). Default: 60 */
+  /** Blur intensity (kept for API compat but unused in bento style) */
   intensity?: number;
-  /** Blur tint. Default: 'dark' */
+  /** Tint (kept for API compat, used to derive card style) */
   tint?: 'light' | 'dark' | 'default';
   /** If provided, the card becomes pressable with animated feedback */
   onPress?: () => void;
@@ -20,22 +19,23 @@ interface GlassCardProps {
 const GlassCard: React.FC<GlassCardProps> = ({
   children,
   style,
-  intensity = 60,
   tint = 'dark',
   onPress,
-  activeOpacity = 0.9,
 }) => {
+  const isDark = tint === 'dark';
+
   const content = (
-    <BlurView
-      intensity={intensity}
-      tint={tint}
-      style={[styles.card, style]}
+    <View
+      style={[
+        styles.card,
+        isDark ? styles.cardDark : styles.cardLight,
+        style,
+      ]}
     >
       {children}
-    </BlurView>
+    </View>
   );
 
-  // Wrap in AnimatedPressable if onPress is provided
   if (onPress) {
     return (
       <AnimatedPressable
@@ -53,14 +53,34 @@ const GlassCard: React.FC<GlassCardProps> = ({
 
 const styles = StyleSheet.create({
   card: {
-    borderRadius: 16,
+    borderRadius: 18,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
     padding: 16,
+    ...Platform.select({
+      ios: {
+        // Warm-hued soft shadow so cards sit gently on the cream canvas
+        shadowColor: '#5E4A36',
+        shadowOffset: { width: 0, height: 3 },
+        shadowOpacity: 0.07,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
+  },
+  cardLight: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 0.5,
+    borderColor: 'rgba(94, 74, 54, 0.08)',
+  },
+  cardDark: {
+    backgroundColor: '#211D18',
+    borderWidth: 0.5,
+    borderColor: 'rgba(255, 240, 220, 0.08)',
   },
   pressableWrapper: {
-    borderRadius: 16,
+    borderRadius: 18,
     overflow: 'hidden',
   },
 });

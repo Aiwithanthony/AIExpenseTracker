@@ -1,31 +1,24 @@
 import React, { useState, useCallback } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
   Alert,
   RefreshControl,
 } from 'react-native';
+import { Text } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
+import { CheckCircle, CaretUp, CaretDown } from 'phosphor-react-native';
 import { useTheme } from '../context/ThemeContext';
+import { useCachedFetch } from '../hooks/useCachedFetch';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import GlassCard from '../components/GlassCard';
 import AnimatedPressable from '../components/AnimatedPressable';
 
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
+const BENTO_RADIUS = 18;
 
 interface SimplifiedDebt {
   fromUser: string;
@@ -88,42 +81,28 @@ export default function SettleUpScreen({ navigation, route }: any) {
     baseCurrency?: string;
   };
 
-  const [balances, setBalances] = useState<BalancesResponse | null>(null);
-  const [settlements, setSettlements] = useState<Settlement[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [settling, setSettling] = useState<string | null>(null);
   const [historyExpanded, setHistoryExpanded] = useState(false);
 
-  const loadData = useCallback(async () => {
-    try {
-      const [balancesData, settlementsData] = await Promise.all([
-        api.getGroupBalances(groupId),
-        api.getSettlements(groupId),
-      ]);
-      setBalances(balancesData as BalancesResponse);
-      setSettlements(
-        Array.isArray(settlementsData) ? settlementsData : [],
-      );
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to load settlement data');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [groupId]);
+  // Cached: instant render on re-entry, silent refresh behind it.
+  const { data, loading, refreshing, refresh } = useCachedFetch<{
+    balances: BalancesResponse;
+    settlements: Settlement[];
+  }>(`settle-up:${groupId}`, async () => {
+    const [balancesData, settlementsData] = await Promise.all([
+      api.getGroupBalances(groupId),
+      api.getSettlements(groupId),
+    ]);
+    return {
+      balances: balancesData as BalancesResponse,
+      settlements: Array.isArray(settlementsData) ? (settlementsData as Settlement[]) : [],
+    };
+  });
 
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      loadData();
-    }, [loadData]),
-  );
-
-  const handleRefresh = useCallback(() => {
-    setRefreshing(true);
-    loadData();
-  }, [loadData]);
+  const balances = data?.balances ?? null;
+  const settlements = data?.settlements ?? [];
+  const loadData = refresh;
+  const handleRefresh = refresh;
 
   const handleMarkAsPaid = (debt: SimplifiedDebt) => {
     const displayAmount = formatAmount(debt.amount, debt.currency);
@@ -183,50 +162,67 @@ export default function SettleUpScreen({ navigation, route }: any) {
 
   const debts = balances?.debts ?? [];
 
+  const cardBg = colors.card;
+  const cardBorder = colors.border;
+
   return (
     <View
       style={[
         styles.container,
-        { backgroundColor: isDark ? '#0D0D0D' : colors.background },
+        { backgroundColor: colors.background },
       ]}
     >
       {/* Header */}
       <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
         <Animated.View entering={FadeInDown.duration(500)}>
-          <LinearGradient
-            colors={['#1A0030', '#2D004F', ACCENT]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.header}
+          <View
+            style={[
+              styles.header,
+              { backgroundColor: colors.background },
+            ]}
           >
             <View style={styles.headerRow}>
               <AnimatedPressable
                 onPress={() => navigation.goBack()}
                 scaleValue={0.9}
-                style={styles.backButton}
+                style={[
+                  styles.backButton,
+                  {
+                    backgroundColor: colors.inputBg,
+                    borderColor: cardBorder,
+                    borderWidth: 0.5,
+                  },
+                ]}
               >
-                <Text style={styles.backArrow}>{'\u2039'}</Text>
+                <Text style={[styles.backArrow, { color: colors.primary }]}>{'\u2039'}</Text>
               </AnimatedPressable>
-              <Text style={styles.title}>Settle Up</Text>
+              <Text style={[styles.title, { color: colors.text }]}>Settle Up</Text>
               <View style={styles.headerSpacer} />
             </View>
-          </LinearGradient>
+          </View>
         </Animated.View>
       </SafeAreaView>
 
       {loading ? (
         <View style={styles.centerContainer}>
-          <GlassCard
-            style={styles.loadingCard}
-            tint={isDark ? 'dark' : 'light'}
+          <View
+            style={[
+              styles.loadingCard,
+              {
+                backgroundColor: cardBg,
+                borderRadius: BENTO_RADIUS,
+                borderColor: cardBorder,
+                borderWidth: 0.5,
+              },
+            ]}
           >
-            <ActivityIndicator size="large" color={ACCENT} />
+            <ActivityIndicator size="large" color={colors.primary} />
             <Text
               style={[styles.loadingText, { color: colors.textSecondary }]}
             >
               Loading balances...
             </Text>
-          </GlassCard>
+          </View>
         </View>
       ) : (
         <ScrollView
@@ -236,8 +232,8 @@ export default function SettleUpScreen({ navigation, route }: any) {
             <RefreshControl
               refreshing={refreshing}
               onRefresh={handleRefresh}
-              tintColor={ACCENT}
-              colors={[ACCENT]}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
             />
           }
         >
@@ -253,11 +249,20 @@ export default function SettleUpScreen({ navigation, route }: any) {
             </Text>
 
             {debts.length === 0 ? (
-              <GlassCard
-                style={styles.emptyCard}
-                tint={isDark ? 'dark' : 'light'}
+              <View
+                style={[
+                  styles.emptyCard,
+                  {
+                    backgroundColor: cardBg,
+                    borderRadius: BENTO_RADIUS,
+                    borderColor: cardBorder,
+                    borderWidth: 0.5,
+                  },
+                ]}
               >
-                <Text style={styles.emptyEmoji}>{'\u2705'}</Text>
+                <View style={styles.emptyEmoji}>
+                  <CheckCircle size={44} color={colors.success} weight="duotone" />
+                </View>
                 <Text style={[styles.emptyTitle, { color: colors.text }]}>
                   All settled up!
                 </Text>
@@ -269,7 +274,7 @@ export default function SettleUpScreen({ navigation, route }: any) {
                 >
                   No outstanding debts in this group.
                 </Text>
-              </GlassCard>
+              </View>
             ) : (
               debts.map((debt, index) => {
                 const debtKey = `${debt.fromUser}-${debt.toUser}`;
@@ -282,9 +287,16 @@ export default function SettleUpScreen({ navigation, route }: any) {
                       150 + index * 80,
                     )}
                   >
-                    <GlassCard
-                      style={styles.debtCard}
-                      tint={isDark ? 'dark' : 'light'}
+                    <View
+                      style={[
+                        styles.debtCard,
+                        {
+                          backgroundColor: cardBg,
+                          borderRadius: BENTO_RADIUS,
+                          borderColor: cardBorder,
+                          borderWidth: 0.5,
+                        },
+                      ]}
                     >
                       <View style={styles.debtInfo}>
                         <Text
@@ -292,7 +304,7 @@ export default function SettleUpScreen({ navigation, route }: any) {
                         >
                           {getDebtLabel(debt)}
                         </Text>
-                        <Text style={styles.debtAmount}>
+                        <Text style={[styles.debtAmount, { color: colors.primary }]}>
                           {formatAmount(debt.amount, debt.currency)}
                         </Text>
                       </View>
@@ -303,12 +315,12 @@ export default function SettleUpScreen({ navigation, route }: any) {
                         scaleValue={0.95}
                         style={styles.payButtonWrapper}
                       >
-                        <LinearGradient
-                          colors={[ACCENT, ACCENT_LIGHT]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 0 }}
+                        <View
                           style={[
                             styles.payButton,
+                            {
+                              backgroundColor: colors.primary,
+                            },
                             isSettling && { opacity: 0.6 },
                           ]}
                         >
@@ -319,9 +331,9 @@ export default function SettleUpScreen({ navigation, route }: any) {
                               Mark as Paid
                             </Text>
                           )}
-                        </LinearGradient>
+                        </View>
                       </AnimatedPressable>
-                    </GlassCard>
+                    </View>
                   </Animated.View>
                 );
               })
@@ -346,23 +358,27 @@ export default function SettleUpScreen({ navigation, route }: any) {
                 >
                   SETTLEMENT HISTORY
                 </Text>
-                <Text
-                  style={[
-                    styles.toggleArrow,
-                    { color: colors.textSecondary },
-                  ]}
-                >
-                  {historyExpanded ? '\u25B2' : '\u25BC'}
-                </Text>
+                {historyExpanded ? (
+                  <CaretUp size={14} color={colors.textSecondary} weight="bold" />
+                ) : (
+                  <CaretDown size={14} color={colors.textSecondary} weight="bold" />
+                )}
               </View>
             </AnimatedPressable>
 
             {historyExpanded && (
               <View style={styles.historyContainer}>
                 {settlements.length === 0 ? (
-                  <GlassCard
-                    style={styles.emptyCard}
-                    tint={isDark ? 'dark' : 'light'}
+                  <View
+                    style={[
+                      styles.emptyCard,
+                      {
+                        backgroundColor: cardBg,
+                        borderRadius: BENTO_RADIUS,
+                        borderColor: cardBorder,
+                        borderWidth: 0.5,
+                      },
+                    ]}
                   >
                     <Text
                       style={[
@@ -372,16 +388,23 @@ export default function SettleUpScreen({ navigation, route }: any) {
                     >
                       No settlements yet
                     </Text>
-                  </GlassCard>
+                  </View>
                 ) : (
                   settlements.map((settlement, index) => (
                     <Animated.View
                       key={settlement.id}
                       entering={FadeInDown.duration(400).delay(index * 60)}
                     >
-                      <GlassCard
-                        style={styles.settlementCard}
-                        tint={isDark ? 'dark' : 'light'}
+                      <View
+                        style={[
+                          styles.settlementCard,
+                          {
+                            backgroundColor: cardBg,
+                            borderRadius: BENTO_RADIUS,
+                            borderColor: cardBorder,
+                            borderWidth: 0.5,
+                          },
+                        ]}
                       >
                         <View style={styles.settlementTop}>
                           <Text
@@ -392,7 +415,7 @@ export default function SettleUpScreen({ navigation, route }: any) {
                           >
                             {getSettlementLabel(settlement)}
                           </Text>
-                          <Text style={styles.settlementAmount}>
+                          <Text style={[styles.settlementAmount, { color: colors.success }]}>
                             {formatAmount(
                               settlement.amount,
                               settlement.currency,
@@ -420,7 +443,7 @@ export default function SettleUpScreen({ navigation, route }: any) {
                             </Text>
                           ) : null}
                         </View>
-                      </GlassCard>
+                      </View>
                     </Animated.View>
                   ))
                 )}
@@ -441,8 +464,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 24,
-    borderBottomLeftRadius: GLASS.borderRadius,
-    borderBottomRightRadius: GLASS.borderRadius,
   },
   headerRow: {
     flexDirection: 'row',
@@ -452,21 +473,18 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 12,
   },
   backArrow: {
     fontSize: 28,
-    color: '#FFFFFF',
     lineHeight: 32,
     fontWeight: '300',
   },
   title: {
     fontSize: 30,
     fontWeight: 'bold',
-    color: '#FFFFFF',
     flex: 1,
   },
   headerSpacer: {
@@ -552,13 +570,12 @@ const styles = StyleSheet.create({
   debtAmount: {
     fontSize: 18,
     fontWeight: '800',
-    color: ACCENT_LIGHT,
   },
   payButtonWrapper: {
     width: '100%',
   },
   payButton: {
-    borderRadius: GLASS.borderRadius,
+    borderRadius: BENTO_RADIUS,
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',

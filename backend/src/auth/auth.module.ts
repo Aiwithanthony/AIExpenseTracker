@@ -7,15 +7,17 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { User } from '../entities/user.entity';
+import { RefreshToken } from '../entities/refresh-token.entity';
+import { getJwtSecret } from '../config/jwt.util';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User]),
+    TypeOrmModule.forFeature([User, RefreshToken]),
     PassportModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService): JwtModuleOptions => ({
-        secret: configService.get<string>('JWT_SECRET') || 'secret',
+        secret: getJwtSecret(configService),
         signOptions: {
           // Default to 1 hour for access tokens (security best practice)
           // Use refresh tokens for longer sessions

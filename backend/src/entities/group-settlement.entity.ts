@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { ExpenseGroup } from './expense-group.entity';
 import { User } from './user.entity';
+import { DecimalTransformer } from '../common/transformers/decimal.transformer';
 
 @Entity('group_settlements')
 export class GroupSettlement {
@@ -23,7 +24,7 @@ export class GroupSettlement {
   @Column()
   toUserId: string;
 
-  @Column('decimal', { precision: 18, scale: 2 })
+  @Column('decimal', { precision: 18, scale: 2, transformer: DecimalTransformer })
   amount: number;
 
   @Column()

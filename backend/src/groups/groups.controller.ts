@@ -18,6 +18,7 @@ import {
   JoinGroupDto,
   AddMembersDto,
   CreateInviteDto,
+  AddCommentDto,
 } from './groups.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -142,5 +143,50 @@ export class GroupsController {
   @Post(':id/invites')
   createInvite(@CurrentUser() user: User, @Param('id') id: string, @Body() dto: CreateInviteDto) {
     return this.groupsService.createInvite(user.id, id, dto);
+  }
+
+  // --- Comments ---
+
+  @Post(':id/expenses/:expenseId/comments')
+  addComment(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Param('expenseId') expenseId: string,
+    @Body() dto: AddCommentDto,
+  ) {
+    return this.groupsService.addComment(user.id, id, expenseId, dto);
+  }
+
+  @Get(':id/expenses/:expenseId/comments')
+  getComments(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Param('expenseId') expenseId: string,
+  ) {
+    return this.groupsService.getComments(user.id, id, expenseId);
+  }
+
+  @Delete(':id/expenses/:expenseId/comments/:commentId')
+  deleteComment(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Param('expenseId') expenseId: string,
+    @Param('commentId') commentId: string,
+  ) {
+    return this.groupsService.deleteComment(user.id, id, expenseId, commentId);
+  }
+
+  // --- Activity Feed ---
+
+  @Get(':id/activity')
+  getGroupActivity(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.groupsService.getGroupActivity(user.id, id);
+  }
+
+  // --- Analytics ---
+
+  @Get(':id/analytics')
+  getGroupAnalytics(@CurrentUser() user: User, @Param('id') id: string) {
+    return this.groupsService.getGroupAnalytics(user.id, id);
   }
 }

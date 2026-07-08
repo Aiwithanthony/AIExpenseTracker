@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 import { Category } from './category.entity';
+import { DecimalTransformer } from '../common/transformers/decimal.transformer';
 
 export enum ExpenseSource {
   APP = 'app',
@@ -31,13 +32,13 @@ export class Expense {
   @Column()
   userId: string;
 
-  @Column('decimal', { precision: 18, scale: 2 })
+  @Column('decimal', { precision: 18, scale: 2, transformer: DecimalTransformer })
   amount: number;
 
   @Column()
   currency: string;
 
-  @Column('decimal', { precision: 18, scale: 2, nullable: true })
+  @Column('decimal', { precision: 18, scale: 2, nullable: true, transformer: DecimalTransformer })
   convertedAmount: number; // Amount in user's default currency
 
   @Column({ nullable: true })

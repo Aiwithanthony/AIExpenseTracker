@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import Stripe from 'stripe';
 import { Payment, PaymentMethod, PaymentStatus } from '../entities/payment.entity';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
+import { SubscriptionStatus } from '../entities/subscription.entity';
 import { SubscriptionTier } from '../entities/user.entity';
 
 @Injectable()
@@ -32,13 +33,15 @@ export class PaymentsService {
       throw new Error('Stripe not configured');
     }
 
-    // Create or retrieve customer
-    const customer = await this.stripe.customers.create({
-      metadata: { userId },
-    });
+    const customer = await this.getOrCreateCustomer(userId);
 
     // Create subscription
     const priceId = this.getPriceId(tier);
+    if (!priceId) {
+      throw new Error(
+        'STRIPE_PREMIUM_PRICE_ID is not configured. Set it to your Stripe Price ID.',
+      );
+    }
     const subscription = await this.stripe.subscriptions.create({
       customer: customer.id,
       items: [{ price: priceId }],
@@ -85,6 +88,59 @@ export class PaymentsService {
     };
   }
 
+  /** Reuse this user's Stripe customer if one exists (by userId metadata), else create one. */
+  private async getOrCreateCustomer(userId: string): Promise<Stripe.Customer> {
+    try {
+      const found = await this.stripe.customers.search({
+        query: `metadata['userId']:'${userId}'`,
+        limit: 1,
+      });
+      if (found.data[0]) {
+        return found.data[0];
+      }
+    } catch {
+      // customers.search may be unavailable on some accounts — fall through to create.
+    }
+    return this.stripe.customers.create({ metadata: { userId } });
+  }
+
+  /**
+   * Create a Stripe-hosted Checkout Session for the premium subscription and
+   * return its URL. The mobile app opens this URL in a browser (no native SDK
+   * needed, so it works in Expo Go). Premium is activated by the
+   * checkout.session.completed webhook.
+   */
+  async createCheckoutSession(userId: string): Promise<{ url: string }> {
+    if (!this.stripe) {
+      throw new Error('Stripe not configured');
+    }
+    const priceId = this.getPriceId(SubscriptionTier.PREMIUM);
+    if (!priceId) {
+      throw new Error(
+        'STRIPE_PREMIUM_PRICE_ID is not configured. Set it to your Stripe Price ID.',
+      );
+    }
+
+    const customer = await this.getOrCreateCustomer(userId);
+    const baseUrl =
+      this.configService.get<string>('BASE_URL') || 'http://localhost:3000';
+
+    const session = await this.stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer: customer.id,
+      line_items: [{ price: priceId, quantity: 1 }],
+      success_url: `${baseUrl}/payments/stripe/return?status=success`,
+      cancel_url: `${baseUrl}/payments/stripe/return?status=cancel`,
+      metadata: { userId },
+      subscription_data: { metadata: { userId } },
+    });
+
+    if (!session.url) {
+      throw new Error('Stripe did not return a Checkout URL');
+    }
+    return { url: session.url };
+  }
+
   async handleStripeWebhook(payload: any, signature: string) {
     if (!this.stripe) {
       throw new Error('Stripe not configured');
@@ -105,6 +161,9 @@ export class PaymentsService {
 
     // Handle different event types
     switch (event.type) {
+      case 'checkout.session.completed':
+        await this.handleCheckoutCompleted(event.data.object as Stripe.Checkout.Session);
+        break;
       case 'payment_intent.succeeded':
         await this.handlePaymentSuccess(event.data.object as Stripe.PaymentIntent);
         break;
@@ -120,6 +179,25 @@ export class PaymentsService {
     }
   }
 
+  /** Activate premium when a hosted Checkout subscription completes. */
+  private async handleCheckoutCompleted(session: Stripe.Checkout.Session) {
+    const userId = session.metadata?.userId;
+    if (!userId) {
+      this.logger.warn('checkout.session.completed without userId metadata');
+      return;
+    }
+    const subscriptionId =
+      typeof session.subscription === 'string'
+        ? session.subscription
+        : session.subscription?.id;
+
+    await this.subscriptionsService.create(userId, SubscriptionTier.PREMIUM, {
+      stripeSubscriptionId: subscriptionId,
+      paymentMethod: PaymentMethod.STRIPE,
+    });
+    this.logger.log(`Premium activated via Checkout for user ${userId}`);
+  }
+
   private async handlePaymentSuccess(paymentIntent: Stripe.PaymentIntent) {
     const payment = await this.paymentsRepository.findOne({
       where: { stripePaymentId: paymentIntent.id },
@@ -129,13 +207,15 @@ export class PaymentsService {
       payment.status = PaymentStatus.COMPLETED;
       await this.paymentsRepository.save(payment);
 
-      // Activate subscription
+      // Activate the premium subscription now that payment has cleared. This is
+      // the step that was previously missing — without it no user could become
+      // premium (and the premium-gated Groups feature was unreachable).
       if (payment.subscriptionId) {
-        // Find user from payment
-        const subscription = await this.subscriptionsService.findOne(payment.userId);
-        if (subscription) {
-          // Subscription already created, just ensure it's active
-        }
+        await this.subscriptionsService.create(payment.userId, SubscriptionTier.PREMIUM, {
+          stripeSubscriptionId: payment.subscriptionId,
+          paymentMethod: PaymentMethod.STRIPE,
+        });
+        this.logger.log(`Premium activated for user ${payment.userId}`);
       }
     }
   }
@@ -152,12 +232,35 @@ export class PaymentsService {
   }
 
   private async handleSubscriptionUpdated(subscription: Stripe.Subscription) {
-    // Update subscription in database
-    this.logger.log(`Subscription updated: ${subscription.id}`);
+    // Map Stripe status → our local status and sync period/cancel flags so
+    // renewals and cancellations from Stripe are reflected in the DB.
+    const statusMap: Record<string, SubscriptionStatus> = {
+      active: SubscriptionStatus.ACTIVE,
+      trialing: SubscriptionStatus.TRIALING,
+      past_due: SubscriptionStatus.PAST_DUE,
+      canceled: SubscriptionStatus.CANCELED,
+      unpaid: SubscriptionStatus.PAST_DUE,
+      incomplete: SubscriptionStatus.PAST_DUE,
+      incomplete_expired: SubscriptionStatus.CANCELED,
+    };
+    const status = statusMap[subscription.status] ?? SubscriptionStatus.CANCELED;
+
+    // current_period_end lives on the subscription (older API) or its items (newer).
+    const periodEndUnix =
+      (subscription as any).current_period_end ??
+      subscription.items?.data?.[0]?.current_period_end;
+    const currentPeriodEnd = periodEndUnix ? new Date(periodEndUnix * 1000) : undefined;
+
+    await this.subscriptionsService.syncFromStripe(subscription.id, {
+      status,
+      currentPeriodEnd,
+      cancelAtPeriodEnd: subscription.cancel_at_period_end,
+    });
+    this.logger.log(`Subscription updated: ${subscription.id} -> ${status}`);
   }
 
   private async handleSubscriptionDeleted(subscription: Stripe.Subscription) {
-    // Cancel subscription in database
+    await this.subscriptionsService.deactivateByStripeSubscriptionId(subscription.id);
     this.logger.log(`Subscription deleted: ${subscription.id}`);
   }
 

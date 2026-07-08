@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
-import { api } from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { api, ApiError } from '../services/api';
 
 export default function Subscribers() {
+  const navigate = useNavigate();
   const [subscribers, setSubscribers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadSubscribers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadSubscribers = async () => {
@@ -16,8 +19,13 @@ export default function Subscribers() {
       const data = await api.getSubscribers();
       setSubscribers(data.subscribers || []);
     } catch (err: any) {
-      setError(err.message || 'Failed to load subscribers');
-      console.error('Error loading subscribers:', err);
+      if (err instanceof ApiError && err.status === 401) {
+        navigate('/login', { replace: true });
+        return;
+      }
+      setError(err instanceof ApiError && err.status === 403
+        ? 'Your account does not have admin access.'
+        : err.message || 'Failed to load subscribers');
     } finally {
       setLoading(false);
     }

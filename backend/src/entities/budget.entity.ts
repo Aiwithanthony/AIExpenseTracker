@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 import { Category } from './category.entity';
+import { DecimalTransformer } from '../common/transformers/decimal.transformer';
 
 @Entity('budgets')
 export class Budget {
@@ -21,7 +22,7 @@ export class Budget {
   @Column({ nullable: true })
   categoryId: string; // null for overall budget
 
-  @Column('decimal', { precision: 18, scale: 2 })
+  @Column('decimal', { precision: 18, scale: 2, transformer: DecimalTransformer })
   amount: number;
 
   @Column()

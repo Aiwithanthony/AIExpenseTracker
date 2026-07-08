@@ -4,6 +4,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { createHmac, timingSafeEqual } from 'crypto';
+import { createWriteStream, existsSync, mkdirSync, unlinkSync } from 'fs';
+import { join } from 'path';
 import { User } from '../entities/user.entity';
 import { VoiceService } from '../voice/voice.service';
 import { ReceiptsService } from '../receipts/receipts.service';
@@ -33,12 +36,34 @@ export class WhatsAppService {
    */
   verifyWebhook(mode: string, token: string, challenge: string): string | null {
     const verifyToken = this.configService.get<string>('WHATSAPP_VERIFY_TOKEN');
-    
+
     if (mode === 'subscribe' && token === verifyToken) {
       return challenge;
     }
-    
+
     return null;
+  }
+
+  /**
+   * Verify the X-Hub-Signature-256 header Meta sends with every webhook POST.
+   * Returns false unless WHATSAPP_APP_SECRET is configured AND the HMAC over the
+   * raw request body matches — so forged POSTs are rejected.
+   */
+  verifySignature(rawBody: Buffer | undefined, signatureHeader: string | undefined): boolean {
+    const appSecret = this.configService.get<string>('WHATSAPP_APP_SECRET');
+    if (!appSecret || !rawBody || !signatureHeader) {
+      return false;
+    }
+
+    const expected =
+      'sha256=' + createHmac('sha256', appSecret).update(rawBody).digest('hex');
+
+    const a = Buffer.from(expected);
+    const b = Buffer.from(signatureHeader);
+    if (a.length !== b.length) {
+      return false;
+    }
+    return timingSafeEqual(a, b);
   }
 
   /**
@@ -229,10 +254,43 @@ export class WhatsAppService {
     });
   }
 
+  /**
+   * Download the WhatsApp media file (authenticated via the API key) and
+   * transcribe it with the existing Whisper-backed VoiceService.
+   */
   private async convertVoiceToText(fileUrl: string): Promise<string> {
-    // TODO: Integrate with speech-to-text service
-    this.logger.warn('Voice-to-text not implemented, using placeholder');
-    return 'Expense description from voice message';
+    const tempDir = join(process.cwd(), 'uploads', 'audio');
+    if (!existsSync(tempDir)) {
+      mkdirSync(tempDir, { recursive: true });
+    }
+    const tempFilePath = join(tempDir, `whatsapp-voice-${Date.now()}.ogg`);
+
+    try {
+      // WhatsApp media URLs require the API bearer token to download.
+      const response = await firstValueFrom(
+        this.httpService.get(fileUrl, {
+          headers: { Authorization: `Bearer ${this.apiKey}` },
+          responseType: 'stream',
+        }),
+      );
+
+      await new Promise<void>((resolve, reject) => {
+        const writer = createWriteStream(tempFilePath);
+        response.data.pipe(writer);
+        writer.on('finish', () => resolve());
+        writer.on('error', reject);
+      });
+
+      return await this.voiceService.transcribeAudio(tempFilePath);
+    } finally {
+      if (existsSync(tempFilePath)) {
+        try {
+          unlinkSync(tempFilePath);
+        } catch (cleanupError) {
+          this.logger.warn(`Could not delete temp audio file ${tempFilePath}`);
+        }
+      }
+    }
   }
 }
 

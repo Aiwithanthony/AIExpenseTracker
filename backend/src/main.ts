@@ -33,11 +33,11 @@ async function bootstrap() {
     mkdirSync(dataDir, { recursive: true });
   }
 
-  // Serve static files for uploads
-  app.useStaticAssets(join(process.cwd(), 'uploads'), {
-    prefix: '/uploads',
-  });
-  
+  // NOTE: uploads are NOT served as public static assets. Receipt images are
+  // served through the authenticated, ownership-checked GET /uploads/receipts/:filename
+  // route (UploadsController). OCR reads local files directly from disk, so it
+  // does not depend on public HTTP access.
+
   // Enable CORS for mobile app and admin dashboard
   const allowedOrigins = [
     process.env.FRONTEND_URL || 'http://localhost:8081',

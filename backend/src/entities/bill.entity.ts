@@ -9,6 +9,7 @@ import {
 } from 'typeorm';
 import { User } from './user.entity';
 import { Category } from './category.entity';
+import { DecimalTransformer } from '../common/transformers/decimal.transformer';
 
 @Entity('bills')
 export class Bill {
@@ -21,7 +22,7 @@ export class Bill {
   @Column()
   name: string; // e.g., "Electricity Bill", "Netflix Subscription"
 
-  @Column('decimal', { precision: 18, scale: 2 })
+  @Column('decimal', { precision: 18, scale: 2, transformer: DecimalTransformer })
   amount: number;
 
   @Column()

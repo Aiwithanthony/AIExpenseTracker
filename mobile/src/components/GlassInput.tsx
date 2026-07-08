@@ -1,14 +1,13 @@
 import React from 'react';
 import {
-  TextInput,
   TextInputProps,
   StyleSheet,
   View,
-  Text,
   StyleProp,
   ViewStyle,
+  Platform,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
+import { TextInput, Text } from './AppText';
 
 interface GlassInputProps extends TextInputProps {
   /** Optional label displayed above the input */
@@ -25,17 +24,12 @@ interface GlassInputProps extends TextInputProps {
   containerStyle?: StyleProp<ViewStyle>;
 }
 
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-};
-
 const GlassInput: React.FC<GlassInputProps> = ({
   label,
-  labelColor = '#98989d',
-  textColor = '#FFFFFF',
-  placeholderColor = 'rgba(255,255,255,0.4)',
-  isDark = true,
+  labelColor = '#8A7F73',
+  textColor = '#2E2823',
+  placeholderColor = '#B8AC9E',
+  isDark = false,
   containerStyle,
   style,
   ...textInputProps
@@ -45,15 +39,12 @@ const GlassInput: React.FC<GlassInputProps> = ({
       {label && (
         <Text style={[styles.label, { color: labelColor }]}>{label}</Text>
       )}
-      <BlurView
-        intensity={isDark ? 40 : 25}
-        tint={isDark ? 'dark' : 'light'}
+      <View
         style={[
           styles.inputContainer,
           {
-            backgroundColor: isDark
-              ? GLASS.bgLight
-              : 'rgba(255, 255, 255, 0.6)',
+            backgroundColor: isDark ? '#2B2620' : '#F4EDE3',
+            borderColor: isDark ? 'rgba(255,240,220,0.08)' : 'rgba(94,74,54,0.08)',
           },
         ]}
       >
@@ -62,7 +53,7 @@ const GlassInput: React.FC<GlassInputProps> = ({
           placeholderTextColor={placeholderColor}
           {...textInputProps}
         />
-      </BlurView>
+      </View>
     </View>
   );
 };
@@ -72,17 +63,14 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   label: {
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-    marginBottom: 8,
-    marginLeft: 4,
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 6,
+    marginLeft: 2,
   },
   inputContainer: {
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: GLASS.borderColor,
+    borderRadius: 12,
+    borderWidth: 0.5,
     overflow: 'hidden',
   },
   input: {

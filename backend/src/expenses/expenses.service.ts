@@ -168,7 +168,7 @@ export class ExpensesService {
           createDto.currency,
           userCurrency,
         );
-        expense.convertedAmount = convertedAmount;
+        expense.convertedAmount = parseFloat(convertedAmount.toFixed(2));
         expense.convertedCurrency = userCurrency;
       } catch (error) {
         console.error('Error converting currency:', error);
@@ -191,7 +191,7 @@ export class ExpensesService {
     return this.expensesRepository.save(expense);
   }
 
-  async findAll(userId: string, query: ExpenseQueryDto): Promise<{
+  async findAll(userId: string, query: ExpenseQueryDto, userCurrency?: string): Promise<{
     expenses: Expense[];
     total: number;
     page: number;
@@ -234,8 +234,10 @@ export class ExpensesService {
     }
 
     if (query.search) {
+      // LOWER(...) LIKE LOWER(...) is case-insensitive on both Postgres and
+      // SQLite; ILIKE is Postgres-only and crashes under DB_TYPE=sqlite.
       queryBuilder.andWhere(
-        '(expense.description ILIKE :search OR expense.merchant ILIKE :search)',
+        '(LOWER(expense.description) LIKE LOWER(:search) OR LOWER(expense.merchant) LIKE LOWER(:search))',
         { search: `%${query.search}%` },
       );
     }
@@ -245,12 +247,67 @@ export class ExpensesService {
       .take(limit)
       .getManyAndCount();
 
+    // Self-heal: foreign-currency rows whose conversion failed at creation
+    // time get re-converted on read, so totals stop excluding them.
+    if (userCurrency) {
+      await this.healMissingConversions(expenses, userCurrency);
+    }
+
     return {
       expenses,
       total,
       page,
       limit,
     };
+  }
+
+  /**
+   * Best-effort repair for foreign-currency rows with a missing/stale
+   * convertedAmount (e.g. the rate API was down when they were created).
+   * One rate lookup per source currency; failures are logged and the rows
+   * remain excluded from stats (see getStats) instead of corrupting totals.
+   */
+  private async healMissingConversions(
+    expenses: Expense[],
+    userCurrency: string,
+  ): Promise<void> {
+    const needsHeal = expenses.filter(
+      (e) =>
+        e.currency &&
+        e.currency !== userCurrency &&
+        ((e as any).convertedAmount == null ||
+          (e as any).convertedCurrency !== userCurrency),
+    );
+    if (needsHeal.length === 0) return;
+
+    const byCurrency: Record<string, Expense[]> = {};
+    for (const expense of needsHeal) {
+      if (!byCurrency[expense.currency]) byCurrency[expense.currency] = [];
+      byCurrency[expense.currency].push(expense);
+    }
+
+    for (const [sourceCurrency, batch] of Object.entries(byCurrency)) {
+      try {
+        const rate = await this.currencyService.getExchangeRate(
+          sourceCurrency,
+          userCurrency,
+        );
+        for (const expense of batch) {
+          const amount =
+            typeof expense.amount === 'string'
+              ? parseFloat(expense.amount)
+              : expense.amount;
+          expense.convertedAmount = parseFloat((amount * rate).toFixed(2));
+          expense.convertedCurrency = userCurrency;
+        }
+        await this.expensesRepository.save(batch);
+      } catch (error) {
+        console.error(
+          `Could not heal ${sourceCurrency}->${userCurrency} conversions (${batch.length} rows):`,
+          error,
+        );
+      }
+    }
   }
 
   async findOne(userId: string, id: string): Promise<Expense> {
@@ -270,11 +327,61 @@ export class ExpensesService {
     userId: string,
     id: string,
     updateDto: UpdateExpenseDto,
+    userCurrency?: string,
   ): Promise<Expense> {
     const expense = await this.findOne(userId, id);
 
+    // If the amount or currency changed, the stored convertedAmount (used by
+    // BOTH the stats totals and the mobile row display, in preference to the
+    // raw amount) is now stale — recompute it, or an edit silently "does
+    // nothing" because everything keeps reading the old converted value.
+    const amountOrCurrencyChanged =
+      updateDto.amount !== undefined || updateDto.currency !== undefined;
+
     Object.assign(expense, updateDto);
+
+    if (amountOrCurrencyChanged) {
+      await this.syncConvertedAmount(expense, userCurrency);
+    }
+
     return this.expensesRepository.save(expense);
+  }
+
+  /**
+   * Recompute convertedAmount/convertedCurrency for an expense after its amount
+   * or currency changed. Mirrors the logic in create()/reconvertAllForUser:
+   * same-currency → convertedAmount equals amount; otherwise convert via the
+   * currency service. On conversion failure we fall back to the raw amount so
+   * downstream reads never use a stale converted value.
+   */
+  private async syncConvertedAmount(
+    expense: Expense,
+    userCurrency?: string,
+  ): Promise<void> {
+    const amount =
+      typeof expense.amount === 'string'
+        ? parseFloat(expense.amount)
+        : expense.amount;
+    const target = userCurrency || expense.convertedCurrency || expense.currency;
+
+    if (!target || expense.currency === target) {
+      expense.convertedAmount = amount;
+      expense.convertedCurrency = target || expense.currency;
+      return;
+    }
+
+    try {
+      expense.convertedAmount = await this.currencyService.convert(
+        amount,
+        expense.currency,
+        target,
+      );
+      expense.convertedCurrency = target;
+    } catch (error) {
+      console.error('Error recomputing converted amount on update:', error);
+      expense.convertedAmount = amount;
+      expense.convertedCurrency = expense.currency;
+    }
   }
 
   async remove(userId: string, id: string): Promise<void> {
@@ -297,6 +404,8 @@ export class ExpensesService {
     averagePerDay: number;
     topCategories: Array<{ name: string; amount: number; percentage: number }>;
     topMerchants: Array<{ name: string; amount: number; count: number }>;
+    unconvertedCount: number;
+    unconvertedCurrencies: string[];
   }> {
     const queryBuilder = this.expensesRepository
       .createQueryBuilder('expense')
@@ -312,6 +421,12 @@ export class ExpensesService {
 
     const expenses = await queryBuilder.getMany();
 
+    // Self-heal any rows whose conversion failed at creation time before
+    // computing, so they rejoin the totals instead of being excluded.
+    if (userCurrency) {
+      await this.healMissingConversions(expenses, userCurrency);
+    }
+
     const toNumber = (v: unknown): number => {
       if (typeof v === 'number') return v;
       if (typeof v === 'string') {
@@ -321,41 +436,52 @@ export class ExpensesService {
       return 0;
     };
 
-    const getAmountForStats = (e: Expense): number => {
-      // Prefer convertedAmount when it's in the user's currency (or when currency isn't provided)
-      // This keeps totals consistent with the user's default currency view.
-      const convertedAmount = toNumber((e as any).convertedAmount);
+    const getAmountForStats = (e: Expense): number | null => {
+      // Prefer convertedAmount when it's in the user's currency — keeps totals
+      // consistent with the user's default currency view.
+      const convertedRaw = (e as any).convertedAmount;
       const convertedCurrency = (e as any).convertedCurrency as string | undefined;
-      if (Number.isFinite(convertedAmount) && convertedAmount !== 0) {
-        if (!userCurrency || (convertedCurrency && convertedCurrency === userCurrency)) {
-          return convertedAmount;
-        }
+      if (convertedRaw != null && (!userCurrency || convertedCurrency === userCurrency)) {
+        return toNumber(convertedRaw);
       }
-      return toNumber(e.amount);
+      // Same-currency rows need no conversion.
+      if (!userCurrency || !e.currency || e.currency === userCurrency) {
+        return toNumber(e.amount);
+      }
+      // Foreign-currency row without a valid conversion: exclude it (and report
+      // it) rather than silently adding raw EUR/LBP amounts into USD totals.
+      return null;
     };
+
+    let unconvertedCount = 0;
+    const unconvertedCurrencies = new Set<string>();
+    const sumWithExclusions = (list: Expense[]): number =>
+      list.reduce((sum, e) => {
+        const amount = getAmountForStats(e);
+        if (amount == null) {
+          unconvertedCount++;
+          if (e.currency) unconvertedCurrencies.add(e.currency);
+          return sum;
+        }
+        return sum + (Number.isFinite(amount) ? amount : 0);
+      }, 0);
 
     // Separate income and expenses
     const expenseTransactions = expenses.filter(e => !e.type || e.type === TransactionType.EXPENSE);
     const incomeTransactions = expenses.filter(e => e.type === TransactionType.INCOME);
 
-    const totalExpenses = expenseTransactions.reduce((sum, e) => {
-      const amount = getAmountForStats(e);
-      return sum + (Number.isFinite(amount) ? amount : 0);
-    }, 0);
-
-    const totalIncome = incomeTransactions.reduce((sum, e) => {
-      const amount = getAmountForStats(e);
-      return sum + (Number.isFinite(amount) ? amount : 0);
-    }, 0);
+    const totalExpenses = sumWithExclusions(expenseTransactions);
+    const totalIncome = sumWithExclusions(incomeTransactions);
 
     const total = totalExpenses; // Keep for backward compatibility
     const netAmount = totalIncome - totalExpenses;
 
     const byCategory: Record<string, number> = {};
     expenseTransactions.forEach((expense) => {
-      const categoryName = expense.category?.name || 'Uncategorized';
       const amount = getAmountForStats(expense);
-      byCategory[categoryName] = (byCategory[categoryName] || 0) + (Number.isFinite(amount) ? amount : 0);
+      if (amount == null) return; // unconverted — excluded from breakdowns too
+      const categoryName = expense.category?.name || 'Uncategorized';
+      byCategory[categoryName] = (byCategory[categoryName] || 0) + amount;
     });
 
     // Top categories
@@ -373,10 +499,11 @@ export class ExpensesService {
     expenseTransactions.forEach((expense) => {
       if (expense.merchant) {
         const amount = getAmountForStats(expense);
+        if (amount == null) return;
         if (!merchantStats[expense.merchant]) {
           merchantStats[expense.merchant] = { amount: 0, count: 0 };
         }
-        merchantStats[expense.merchant].amount += Number.isFinite(amount) ? amount : 0;
+        merchantStats[expense.merchant].amount += amount;
         merchantStats[expense.merchant].count += 1;
       }
     });
@@ -402,7 +529,8 @@ export class ExpensesService {
         }
         const dateKey = date.toISOString().split('T')[0];
         const amount = getAmountForStats(expense);
-        byDate[dateKey] = (byDate[dateKey] || 0) + (Number.isFinite(amount) ? amount : 0);
+        if (amount == null) return;
+        byDate[dateKey] = (byDate[dateKey] || 0) + amount;
       } catch (error) {
         console.error('Error processing expense date:', error);
       }
@@ -423,6 +551,8 @@ export class ExpensesService {
       averagePerDay,
       topCategories,
       topMerchants,
+      unconvertedCount,
+      unconvertedCurrencies: [...unconvertedCurrencies],
     };
   }
 

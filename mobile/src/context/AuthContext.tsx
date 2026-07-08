@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api } from '../services/api';
 import { signInWithApple } from '../services/oauth';
+import { clearScreenCache } from '../hooks/useCachedFetch';
 
 interface User {
   id: string;
@@ -9,6 +10,7 @@ interface User {
   name: string;
   subscriptionTier: string;
   currency: string;
+  whatsappNumber?: string;
 }
 
 interface AuthContextType {
@@ -19,50 +21,52 @@ interface AuthContextType {
   logout: () => Promise<void>;
   appleLogin: () => Promise<void>;
   setUserAfterOAuth: (userData: User) => void;
-  updateUser: (data: { name?: string; currency?: string }) => Promise<void>;
+  updateUser: (data: { name?: string; currency?: string; whatsappNumber?: string }) => Promise<void>;
   // Note: googleLogin is now handled via useGoogleAuth hook in components
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// DEV MODE: Bypass authentication - Set to false to re-enable auth
-const DEV_MODE = false; // Temporarily disabled to test Google Sign-In
-
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(
-    DEV_MODE ? { id: 'dev-user', email: 'dev@test.com', name: 'Dev User', subscriptionTier: 'FREE', currency: 'USD' } : null
-  );
-  const [loading, setLoading] = useState(!DEV_MODE);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (DEV_MODE) {
-      // Set a fake token for dev mode
-      AsyncStorage.setItem('auth_token', 'dev-token');
-      setLoading(false);
-    } else {
-      loadUser();
-    }
+    loadUser();
   }, []);
 
   async function loadUser() {
     try {
       const userStr = await AsyncStorage.getItem('user');
-      if (userStr) {
-        const userData = JSON.parse(userStr);
-        // Verify token by fetching current user
-        try {
-          const currentUser = await api.getCurrentUser() as User;
-          setUser(currentUser);
-        } catch (apiError) {
-          // Token invalid, expired, or backend not available - clear storage
-          await AsyncStorage.removeItem('auth_token');
-          await AsyncStorage.removeItem('user');
+      if (!userStr) {
+        return;
+      }
+
+      // Show the cached user immediately so the app works offline / while the
+      // network is briefly unavailable.
+      const cachedUser = JSON.parse(userStr) as User;
+      setUser(cachedUser);
+
+      // Then confirm the session in the background.
+      try {
+        const currentUser = (await api.getCurrentUser()) as User;
+        setUser(currentUser);
+        await AsyncStorage.setItem('user', JSON.stringify(currentUser));
+      } catch (apiError: any) {
+        // Only sign the user out on a genuine auth failure. On network errors
+        // (server down, no connectivity) keep the cached session so a temporary
+        // outage doesn't log the user out.
+        const message: string = apiError?.message || '';
+        const isAuthFailure = message.toLowerCase().includes('session expired');
+        if (isAuthFailure) {
+          await AsyncStorage.multiRemove(['auth_token', 'refresh_token', 'user']);
+          setUser(null);
         }
       }
-    } catch (error) {
-      // Error reading storage - just clear it
-      await AsyncStorage.removeItem('auth_token');
-      await AsyncStorage.removeItem('user');
+    } catch {
+      // Corrupt storage — clear it.
+      await AsyncStorage.multiRemove(['auth_token', 'refresh_token', 'user']);
+      setUser(null);
     } finally {
       setLoading(false);
     }
@@ -80,6 +84,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function logout() {
     await api.logout();
+    clearScreenCache();
     setUser(null);
   }
 
@@ -93,9 +98,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(userData);
   }
 
-  async function updateUser(data: { name?: string; currency?: string }) {
-    const updated = await api.updateProfile(data);
-    setUser((prev) => prev ? { ...prev, ...data } : prev);
+  async function updateUser(data: { name?: string; currency?: string; whatsappNumber?: string }) {
+    await api.updateProfile(data);
+    setUser((prev) => (prev ? { ...prev, ...data } : prev));
   }
 
   return (
@@ -112,4 +117,3 @@ export function useAuth() {
   }
   return context;
 }
-

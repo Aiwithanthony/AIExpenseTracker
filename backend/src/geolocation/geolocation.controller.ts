@@ -1,7 +1,7 @@
-import { Controller, Post, Get, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
 import { IsNumber, IsOptional, IsString, IsDateString, IsEnum, IsBoolean, Min } from 'class-validator';
 import { Type } from 'class-transformer';
-import { GeolocationService, LocationData, LocationRule } from './geolocation.service';
+import { GeolocationService, LocationData } from './geolocation.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { User } from '../entities/user.entity';
@@ -30,6 +30,10 @@ export class TrackLocationExitDto extends TrackLocationDto {
 }
 
 export class CreateLocationRuleDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
   @IsEnum(['coffee_shop', 'restaurant', 'grocery', 'mall', 'supermarket', 'custom'])
   locationType: 'coffee_shop' | 'restaurant' | 'grocery' | 'mall' | 'supermarket' | 'custom';
 
@@ -54,6 +58,43 @@ export class CreateLocationRuleDto {
   @Type(() => Boolean)
   @IsBoolean()
   enabled: boolean;
+}
+
+export class UpdateLocationRuleDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsEnum(['coffee_shop', 'restaurant', 'grocery', 'mall', 'supermarket', 'custom'])
+  locationType?: 'coffee_shop' | 'restaurant' | 'grocery' | 'mall' | 'supermarket' | 'custom';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  longitude?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  radius?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  @Min(0)
+  minTimeSpent?: number;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  enabled?: boolean;
 }
 
 @Controller('geolocation')
@@ -106,6 +147,21 @@ export class GeolocationController {
   @Get('rules')
   async getRules(@CurrentUser() user: User) {
     return this.geolocationService.getLocationRules(user.id);
+  }
+
+  @Patch('rules/:id')
+  async updateRule(
+    @CurrentUser() user: User,
+    @Param('id') id: string,
+    @Body() dto: UpdateLocationRuleDto,
+  ) {
+    return this.geolocationService.updateLocationRule(user.id, id, dto);
+  }
+
+  @Delete('rules/:id')
+  async deleteRule(@CurrentUser() user: User, @Param('id') id: string) {
+    await this.geolocationService.deleteLocationRule(user.id, id);
+    return { success: true };
   }
 }
 

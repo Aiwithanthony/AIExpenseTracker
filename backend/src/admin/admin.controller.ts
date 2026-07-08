@@ -6,9 +6,10 @@ import { Expense } from '../entities/expense.entity';
 import { Subscription } from '../entities/subscription.entity';
 import { Payment } from '../entities/payment.entity';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { AdminGuard } from '../common/guards/admin.guard';
 
 @Controller('admin')
-@UseGuards(JwtAuthGuard) // TODO: Add admin role guard
+@UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminController {
   constructor(
     @InjectRepository(User)

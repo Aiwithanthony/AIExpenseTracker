@@ -1,7 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
@@ -10,15 +9,24 @@ import {
   Platform,
   TouchableOpacity,
 } from 'react-native';
+import { Text } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
+import {
+  Plus,
+  Check,
+  ClipboardText,
+  ChartBar,
+  UsersThree,
+  CheckCircle,
+} from 'phosphor-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import GlassCard from '../components/GlassCard';
 import AnimatedPressable from '../components/AnimatedPressable';
+import { useCachedFetch } from '../hooks/useCachedFetch';
 
 let Clipboard: any = null;
 try {
@@ -27,19 +35,14 @@ try {
   // expo-clipboard not available
 }
 
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
+const BENTO_RADIUS = 18;
 
 interface Member {
   id: string;
-  name: string;
-  email: string;
+  userId?: string;
+  user?: { id: string; name?: string; email?: string };
+  name?: string;
+  email?: string;
 }
 
 interface Group {
@@ -80,41 +83,30 @@ export default function GroupDetailScreen({ route, navigation }: any) {
   const { colors, isDark } = useTheme();
   const { user } = useAuth();
 
-  const [group, setGroup] = useState<Group | null>(null);
-  const [expenses, setExpenses] = useState<GroupExpense[]>([]);
-  const [balances, setBalances] = useState<BalancesResponse>({});
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  // Cached: instant render when returning to this group, silent refresh behind it.
+  const { data, loading, refreshing, refresh } = useCachedFetch<{
+    group: Group;
+    expenses: GroupExpense[];
+    balances: BalancesResponse;
+  }>(`group:${groupId}`, async () => {
+    const [groupData, expensesData, balancesData] = await Promise.all([
+      api.getGroup(groupId),
+      api.getGroupExpenses(groupId),
+      api.getGroupBalances(groupId),
+    ]);
+    return {
+      group: groupData as Group,
+      expenses: Array.isArray(expensesData) ? (expensesData as GroupExpense[]) : [],
+      balances: (balancesData as BalancesResponse) || {},
+    };
+  });
 
-  const loadData = useCallback(async () => {
-    try {
-      const [groupData, expensesData, balancesData] = await Promise.all([
-        api.getGroup(groupId),
-        api.getGroupExpenses(groupId),
-        api.getGroupBalances(groupId),
-      ]);
-      setGroup(groupData as Group);
-      setExpenses(Array.isArray(expensesData) ? expensesData : []);
-      setBalances((balancesData as BalancesResponse) || {});
-    } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to load group details');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [groupId]);
+  const group = data?.group ?? null;
+  const expenses = data?.expenses ?? [];
+  const balances = data?.balances ?? {};
 
-  useFocusEffect(
-    useCallback(() => {
-      setLoading(true);
-      loadData();
-    }, [loadData]),
-  );
-
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    loadData();
-  }, [loadData]);
+  const loadData = refresh;
+  const onRefresh = refresh;
 
   const handleCopyInviteCode = async (code: string) => {
     if (Clipboard && Clipboard.setStringAsync) {
@@ -171,8 +163,8 @@ export default function GroupDetailScreen({ route, navigation }: any) {
   const getPayerName = (expense: GroupExpense): string => {
     if (expense.paidByUser?.name) return expense.paidByUser.name;
     if (group?.members) {
-      const member = group.members.find((m) => m.id === expense.paidBy);
-      if (member) return member.name;
+      const member = group.members.find((m) => m.userId === expense.paidBy);
+      if (member?.user?.name) return member.user.name;
     }
     return 'Unknown';
   };
@@ -185,32 +177,38 @@ export default function GroupDetailScreen({ route, navigation }: any) {
         return '#FF9500';
       case 'PERCENTAGE':
         return '#5AC8FA';
+      case 'SHARES':
+        return '#BF5AF2';
       default:
-        return ACCENT_LIGHT;
+        return colors.primary;
     }
   };
 
   if (loading) {
     return (
-      <View style={[styles.container, { backgroundColor: isDark ? '#0D0D0D' : colors.background }]}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
           <Animated.View entering={FadeInDown.duration(500)}>
-            <LinearGradient
-              colors={['#1A0030', '#2D004F', ACCENT]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.header}
+            <View
+              style={[
+                styles.header,
+                {
+                  backgroundColor: colors.card,
+                  borderBottomWidth: 0.5,
+                  borderBottomColor: colors.border,
+                },
+              ]}
             >
               <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-                <Text style={styles.backArrow}>{'\u2039'}</Text>
+                <Text style={[styles.backArrow, { color: colors.primary }]}>{'\u2039'}</Text>
               </TouchableOpacity>
-              <Text style={styles.title}>Loading...</Text>
-            </LinearGradient>
+              <Text style={[styles.title, { color: colors.text }]}>Loading...</Text>
+            </View>
           </Animated.View>
         </SafeAreaView>
         <View style={styles.centerContainer}>
           <GlassCard style={styles.loadingCard} tint={isDark ? 'dark' : 'light'}>
-            <ActivityIndicator size="large" color={ACCENT} />
+            <ActivityIndicator size="large" color={colors.primary} />
             <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading group details...</Text>
           </GlassCard>
         </View>
@@ -221,37 +219,48 @@ export default function GroupDetailScreen({ route, navigation }: any) {
   const currentBalance = getCurrentUserBalance();
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? '#0D0D0D' : colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
         <Animated.View entering={FadeInDown.duration(500)}>
-          <LinearGradient
-            colors={['#1A0030', '#2D004F', ACCENT]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.header}
+          <View
+            style={[
+              styles.header,
+              {
+                backgroundColor: colors.card,
+                borderBottomWidth: 0.5,
+                borderBottomColor: colors.border,
+              },
+            ]}
           >
             <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-              <Text style={styles.backArrow}>{'\u2039'}</Text>
+              <Text style={[styles.backArrow, { color: colors.primary }]}>{'\u2039'}</Text>
             </TouchableOpacity>
-            <Text style={styles.title} numberOfLines={1}>
+            <Text style={[styles.title, { color: colors.text }]} numberOfLines={1}>
               {group?.name || 'Group'}
             </Text>
-            <Text style={styles.memberCount}>
+            <Text style={[styles.memberCount, { color: colors.textSecondary }]}>
               {group?.members?.length || 0} member{(group?.members?.length || 0) !== 1 ? 's' : ''}
             </Text>
             {group?.inviteCode && (
               <TouchableOpacity
                 onPress={() => handleCopyInviteCode(group.inviteCode!)}
-                style={styles.inviteCodeContainer}
+                style={[
+                  styles.inviteCodeContainer,
+                  {
+                    backgroundColor: colors.inputBg,
+                    borderWidth: 0.5,
+                    borderColor: colors.border,
+                  },
+                ]}
                 activeOpacity={0.7}
               >
-                <Text style={styles.inviteCodeLabel}>Invite Code:</Text>
-                <Text style={styles.inviteCode}>{group.inviteCode}</Text>
-                <Text style={styles.tapToCopy}>Tap to copy</Text>
+                <Text style={[styles.inviteCodeLabel, { color: colors.textSecondary }]}>Invite Code:</Text>
+                <Text style={[styles.inviteCode, { color: colors.text }]}>{group.inviteCode}</Text>
+                <Text style={[styles.tapToCopy, { color: colors.textSecondary }]}>Tap to copy</Text>
               </TouchableOpacity>
             )}
-          </LinearGradient>
+          </View>
         </Animated.View>
       </SafeAreaView>
 
@@ -262,37 +271,56 @@ export default function GroupDetailScreen({ route, navigation }: any) {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            tintColor={ACCENT}
-            colors={[ACCENT]}
+            tintColor={colors.primary}
+            colors={[colors.primary]}
           />
         }
       >
-        {/* Balance Summary */}
+        {/* Balance Summary — tinted bento hero */}
         <Animated.View entering={FadeInDown.duration(400).delay(100)}>
-          <GlassCard style={styles.balanceCard} tint={isDark ? 'dark' : 'light'}>
-            <Text style={[styles.balanceSectionTitle, { color: colors.textSecondary }]}>
-              Your Balance
-            </Text>
+          <View
+            style={[
+              styles.balanceCard,
+              styles.balanceHero,
+              {
+                backgroundColor:
+                  currentBalance < 0 ? colors.tintWarm : colors.tintCool,
+              },
+            ]}
+          >
             <Text
               style={[
-                styles.balanceAmount,
-                {
-                  color:
-                    currentBalance > 0
-                      ? '#34C759'
-                      : currentBalance < 0
-                      ? '#FF6B6B'
-                      : '#FFFFFF',
-                },
+                styles.balanceSectionTitle,
+                { color: currentBalance < 0 ? colors.tintWarmText : colors.tintCoolText },
+              ]}
+            >
+              YOUR BALANCE
+            </Text>
+            {currentBalance === 0 ? (
+              <CheckCircle size={38} color={colors.tintCoolText} weight="duotone" />
+            ) : (
+              <Text
+                style={[
+                  styles.balanceHeroAmount,
+                  { color: currentBalance < 0 ? colors.tintWarmText : colors.tintCoolText },
+                ]}
+              >
+                {`$${formatAmount(currentBalance)}`}
+              </Text>
+            )}
+            <Text
+              style={[
+                styles.balanceHeroSub,
+                { color: currentBalance < 0 ? colors.tintWarmText : colors.tintCoolText },
               ]}
             >
               {currentBalance > 0
-                ? `You are owed $${formatAmount(currentBalance)}`
+                ? 'You are owed'
                 : currentBalance < 0
-                ? `You owe $${formatAmount(currentBalance)}`
+                ? 'You owe'
                 : 'All settled up'}
             </Text>
-          </GlassCard>
+          </View>
         </Animated.View>
 
         {/* Action Buttons */}
@@ -308,15 +336,12 @@ export default function GroupDetailScreen({ route, navigation }: any) {
               scaleValue={0.95}
               style={styles.actionButtonWrapper}
             >
-              <LinearGradient
-                colors={[ACCENT, ACCENT_LIGHT]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.actionButton}
-              >
-                <Text style={styles.actionButtonEmoji}>{'\uD83D\uDCB0'}</Text>
-                <Text style={styles.actionButtonText}>Add Expense</Text>
-              </LinearGradient>
+              <View style={[styles.actionButton, { backgroundColor: colors.primary }]}>
+                <View style={styles.actionButtonEmoji}>
+                  <Plus size={22} color="#FFFFFF" weight="bold" />
+                </View>
+                <Text style={styles.actionButtonText}>Add</Text>
+              </View>
             </AnimatedPressable>
 
             <AnimatedPressable
@@ -329,17 +354,46 @@ export default function GroupDetailScreen({ route, navigation }: any) {
               scaleValue={0.95}
               style={styles.actionButtonWrapper}
             >
-              <LinearGradient
-                colors={[ACCENT, ACCENT_LIGHT]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.actionButton}
-              >
-                <Text style={styles.actionButtonEmoji}>{'\u2705'}</Text>
-                <Text style={styles.actionButtonText}>Settle Up</Text>
-              </LinearGradient>
+              <View style={[styles.actionButton, { backgroundColor: colors.primary }]}>
+                <View style={styles.actionButtonEmoji}>
+                  <Check size={22} color="#FFFFFF" weight="bold" />
+                </View>
+                <Text style={styles.actionButtonText}>Settle</Text>
+              </View>
             </AnimatedPressable>
 
+            <AnimatedPressable
+              onPress={() =>
+                navigation.navigate('GroupActivity', { groupId, groupName: group?.name })
+              }
+              scaleValue={0.95}
+              style={styles.actionButtonWrapper}
+            >
+              <View style={[styles.actionButton, { backgroundColor: colors.primary }]}>
+                <View style={styles.actionButtonEmoji}>
+                  <ClipboardText size={22} color="#FFFFFF" weight="fill" />
+                </View>
+                <Text style={styles.actionButtonText}>Activity</Text>
+              </View>
+            </AnimatedPressable>
+
+            <AnimatedPressable
+              onPress={() =>
+                navigation.navigate('GroupAnalytics', { groupId, groupName: group?.name })
+              }
+              scaleValue={0.95}
+              style={styles.actionButtonWrapper}
+            >
+              <View style={[styles.actionButton, { backgroundColor: colors.primary }]}>
+                <View style={styles.actionButtonEmoji}>
+                  <ChartBar size={22} color="#FFFFFF" weight="fill" />
+                </View>
+                <Text style={styles.actionButtonText}>Analytics</Text>
+              </View>
+            </AnimatedPressable>
+          </View>
+
+          <View style={styles.actionsRow}>
             <AnimatedPressable
               onPress={() =>
                 navigation.navigate('InviteMembers', { groupId })
@@ -347,15 +401,12 @@ export default function GroupDetailScreen({ route, navigation }: any) {
               scaleValue={0.95}
               style={styles.actionButtonWrapper}
             >
-              <LinearGradient
-                colors={[ACCENT, ACCENT_LIGHT]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.actionButton}
-              >
-                <Text style={styles.actionButtonEmoji}>{'\uD83D\uDC65'}</Text>
-                <Text style={styles.actionButtonText}>Members</Text>
-              </LinearGradient>
+              <View style={[styles.actionButton, { backgroundColor: colors.inputBg }]}>
+                <View style={styles.actionButtonEmoji}>
+                  <UsersThree size={22} color={colors.text} weight="duotone" />
+                </View>
+                <Text style={[styles.actionButtonText, { color: colors.text }]}>Members</Text>
+              </View>
             </AnimatedPressable>
           </View>
         </Animated.View>
@@ -371,7 +422,9 @@ export default function GroupDetailScreen({ route, navigation }: any) {
 
           {expenses.length === 0 ? (
             <GlassCard style={styles.emptyCard} tint={isDark ? 'dark' : 'light'}>
-              <Text style={styles.emptyEmoji}>{'\uD83D\uDCCB'}</Text>
+              <View style={styles.emptyEmoji}>
+                <ClipboardText size={44} color={colors.textTertiary} weight="duotone" />
+              </View>
               <Text style={[styles.emptyTitle, { color: colors.text }]}>No Expenses Yet</Text>
               <Text style={[styles.emptyMessage, { color: colors.textSecondary }]}>
                 Add your first shared expense to start tracking who owes what.
@@ -384,6 +437,13 @@ export default function GroupDetailScreen({ route, navigation }: any) {
                 entering={FadeInDown.duration(400).delay(350 + index * 60)}
               >
                 <AnimatedPressable
+                  onPress={() =>
+                    navigation.navigate('GroupExpenseDetail', {
+                      groupId,
+                      expenseId: expense.id,
+                      expense,
+                    })
+                  }
                   onLongPress={() => handleDeleteExpense(expense)}
                   scaleValue={0.97}
                   style={styles.expenseItemWrapper}
@@ -443,8 +503,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 24,
-    borderBottomLeftRadius: GLASS.borderRadius,
-    borderBottomRightRadius: GLASS.borderRadius,
+    borderBottomLeftRadius: BENTO_RADIUS,
+    borderBottomRightRadius: BENTO_RADIUS,
   },
   backButton: {
     marginBottom: 8,
@@ -454,25 +514,21 @@ const styles = StyleSheet.create({
   },
   backArrow: {
     fontSize: 36,
-    color: '#FFFFFF',
     fontWeight: '300',
     lineHeight: 36,
   },
   title: {
     fontSize: 30,
     fontWeight: 'bold',
-    color: '#FFFFFF',
   },
   memberCount: {
     fontSize: 15,
-    color: 'rgba(255, 255, 255, 0.7)',
     marginTop: 4,
   },
   inviteCodeContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -480,18 +536,15 @@ const styles = StyleSheet.create({
   },
   inviteCodeLabel: {
     fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.6)',
     marginRight: 6,
   },
   inviteCode: {
     fontSize: 14,
-    color: '#FFFFFF',
     fontWeight: '600',
     letterSpacing: 1,
   },
   tapToCopy: {
     fontSize: 10,
-    color: 'rgba(255, 255, 255, 0.4)',
     marginLeft: 8,
   },
   scrollContent: {
@@ -519,6 +572,24 @@ const styles = StyleSheet.create({
     padding: 24,
     marginBottom: 16,
   },
+  balanceHero: {
+    borderRadius: 18,
+    padding: 18,
+    alignItems: 'center',
+  },
+  balanceHeroAmount: {
+    fontSize: 32,
+    fontWeight: '800',
+    letterSpacing: -0.6,
+    marginTop: 6,
+    fontVariant: ['tabular-nums'],
+  },
+  balanceHeroSub: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 4,
+    opacity: 0.85,
+  },
   balanceSectionTitle: {
     fontSize: 13,
     fontWeight: '500',
@@ -541,7 +612,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   actionButton: {
-    borderRadius: GLASS.borderRadius,
+    borderRadius: BENTO_RADIUS,
     paddingVertical: 14,
     alignItems: 'center',
     justifyContent: 'center',

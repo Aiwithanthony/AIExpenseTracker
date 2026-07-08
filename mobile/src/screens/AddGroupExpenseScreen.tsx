@@ -1,7 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
@@ -11,33 +10,19 @@ import {
   Keyboard,
   TouchableWithoutFeedback,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
+import { Text, TextInput } from '../components/AppText';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { CalendarBlank, CaretLeft, Check } from 'phosphor-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import GlassCard from '../components/GlassCard';
-import GlassInput from '../components/GlassInput';
 import AnimatedPressable from '../components/AnimatedPressable';
 
-// Design system tokens
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  borderColorStrong: 'rgba(255, 255, 255, 0.3)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  bgMedium: 'rgba(255, 255, 255, 0.12)',
-  bgDark: 'rgba(0, 0, 0, 0.2)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
+// Apple-style design tokens
+const BENTO_RADIUS = 18;
 
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
-
-type SplitType = 'equal' | 'exact' | 'percentage';
+type SplitType = 'equal' | 'exact' | 'percentage' | 'shares';
 
 interface Member {
   userId: string;
@@ -76,6 +61,11 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
   const [splitAmounts, setSplitAmounts] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
+  // Apple-style dynamic colors
+  const cardBg = colors.card;
+  const inputBg = colors.inputBg;
+  const borderColor = colors.border;
+
   // Derived values
   const selectedMemberIds = useMemo(
     () => Array.from(selectedMembers),
@@ -85,7 +75,8 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
   const splitTypeOptions: { key: SplitType; label: string }[] = [
     { key: 'equal', label: 'Equal' },
     { key: 'exact', label: 'Exact' },
-    { key: 'percentage', label: 'Percentage' },
+    { key: 'percentage', label: '%' },
+    { key: 'shares', label: 'Shares' },
   ];
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -184,6 +175,16 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
       }
     }
 
+    if (splitType === 'shares') {
+      const hasInvalidShare = selectedMemberIds.some(
+        (id) => !splitAmounts[id] || parseFloat(splitAmounts[id]) <= 0
+      );
+      if (hasInvalidShare) {
+        Alert.alert('Error', 'Each member must have at least 1 share');
+        return false;
+      }
+    }
+
     return true;
   };
 
@@ -220,6 +221,13 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
         }));
       }
 
+      if (splitType === 'shares') {
+        payload.splits = selectedMemberIds.map((id) => ({
+          userId: id,
+          amount: parseFloat(splitAmounts[id] || '1') || 1,
+        }));
+      }
+
       await api.createGroupExpense(groupId, payload);
       navigation.goBack();
     } catch (error: any) {
@@ -232,36 +240,41 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* ─── Glass Header Bar ─────────────────────────────────────────── */}
-      <View style={styles.headerWrapper}>
-        <LinearGradient
-          colors={
-            isDark
-              ? (['#0D0221', '#1A0533', ACCENT + '80'] as const)
-              : (['#1A0533', '#2D1052', ACCENT_LIGHT + '90'] as const)
-          }
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.headerGradient}
-        >
-          <View style={styles.headerSafeArea}>
-            <View style={styles.headerContent}>
-              <AnimatedPressable
-                onPress={() => navigation.goBack()}
-                scaleValue={0.93}
+      {/* ─── Header Bar ─────────────────────────────────────────── */}
+      <View
+        style={[
+          styles.headerWrapper,
+          {
+            backgroundColor: colors.background,
+            borderBottomWidth: 0.5,
+            borderBottomColor: borderColor,
+          },
+        ]}
+      >
+        <View style={styles.headerSafeArea}>
+          <View style={styles.headerContent}>
+            <AnimatedPressable
+              onPress={() => navigation.goBack()}
+              scaleValue={0.93}
+            >
+              <View
+                style={[
+                  styles.backButton,
+                  {
+                    backgroundColor: inputBg,
+                    borderWidth: 0.5,
+                    borderColor: borderColor,
+                  },
+                ]}
               >
-                <BlurView
-                  intensity={40}
-                  tint="light"
-                  style={styles.glassBackButton}
-                >
-                  <Text style={styles.glassBackButtonText}>{'\u2190'}</Text>
-                </BlurView>
-              </AnimatedPressable>
-              <Text style={styles.headerTitle}>Add Expense</Text>
-            </View>
+                <CaretLeft size={22} color={colors.primary} weight="bold" />
+              </View>
+            </AnimatedPressable>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>
+              Add Expense
+            </Text>
           </View>
-        </LinearGradient>
+        </View>
       </View>
 
       {/* ─── Form Content ─────────────────────────────────────────────── */}
@@ -280,48 +293,84 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
           >
             {/* ─── Amount Input ───────────────────────────────────────── */}
             <Animated.View entering={FadeInDown.delay(100).duration(500)}>
-              <GlassInput
-                label="Amount"
-                placeholder="0.00"
-                placeholderColor={colors.textSecondary}
-                textColor={colors.text}
-                labelColor={colors.textSecondary}
-                isDark={isDark}
-                value={amount}
-                onChangeText={setAmount}
-                keyboardType="decimal-pad"
-              />
+              <Text
+                style={[styles.fieldLabel, { color: colors.textSecondary }]}
+              >
+                AMOUNT
+              </Text>
+              <View
+                style={[
+                  styles.appleInput,
+                  {
+                    backgroundColor: inputBg,
+                    borderColor: borderColor,
+                  },
+                ]}
+              >
+                <TextInput
+                  placeholder="0.00"
+                  placeholderTextColor={colors.textSecondary}
+                  style={[styles.appleInputText, { color: colors.text }]}
+                  value={amount}
+                  onChangeText={setAmount}
+                  keyboardType="decimal-pad"
+                />
+              </View>
             </Animated.View>
 
             {/* ─── Description Input ──────────────────────────────────── */}
             <Animated.View entering={FadeInDown.delay(200).duration(500)}>
-              <GlassInput
-                label="Description"
-                placeholder="What's this for?"
-                placeholderColor={colors.textSecondary}
-                textColor={colors.text}
-                labelColor={colors.textSecondary}
-                isDark={isDark}
-                value={description}
-                onChangeText={setDescription}
-                multiline
-              />
+              <Text
+                style={[styles.fieldLabel, { color: colors.textSecondary }]}
+              >
+                DESCRIPTION
+              </Text>
+              <View
+                style={[
+                  styles.appleInput,
+                  {
+                    backgroundColor: inputBg,
+                    borderColor: borderColor,
+                  },
+                ]}
+              >
+                <TextInput
+                  placeholder="What's this for?"
+                  placeholderTextColor={colors.textSecondary}
+                  style={[styles.appleInputText, { color: colors.text }]}
+                  value={description}
+                  onChangeText={setDescription}
+                  multiline
+                />
+              </View>
             </Animated.View>
 
             {/* ─── Currency Input ─────────────────────────────────────── */}
             <Animated.View entering={FadeInDown.delay(300).duration(500)}>
-              <GlassInput
-                label="Currency"
-                placeholder="USD"
-                placeholderColor={colors.textSecondary}
-                textColor={colors.text}
-                labelColor={colors.textSecondary}
-                isDark={isDark}
-                value={currency}
-                onChangeText={(text) => setCurrency(text.toUpperCase())}
-                autoCapitalize="characters"
-                maxLength={3}
-              />
+              <Text
+                style={[styles.fieldLabel, { color: colors.textSecondary }]}
+              >
+                CURRENCY
+              </Text>
+              <View
+                style={[
+                  styles.appleInput,
+                  {
+                    backgroundColor: inputBg,
+                    borderColor: borderColor,
+                  },
+                ]}
+              >
+                <TextInput
+                  placeholder="USD"
+                  placeholderTextColor={colors.textSecondary}
+                  style={[styles.appleInputText, { color: colors.text }]}
+                  value={currency}
+                  onChangeText={(text) => setCurrency(text.toUpperCase())}
+                  autoCapitalize="characters"
+                  maxLength={3}
+                />
+              </View>
             </Animated.View>
 
             {/* ─── Date Picker Button ─────────────────────────────────── */}
@@ -338,24 +387,22 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
                 }}
                 scaleValue={0.98}
               >
-                <BlurView
-                  intensity={isDark ? 40 : 25}
-                  tint={isDark ? 'dark' : 'light'}
+                <View
                   style={[
                     styles.dateButton,
                     {
-                      backgroundColor: isDark
-                        ? GLASS.bgLight
-                        : 'rgba(255, 255, 255, 0.6)',
+                      backgroundColor: inputBg,
+                      borderColor: borderColor,
                     },
                   ]}
                 >
                   <View style={styles.dateButtonContent}>
-                    <Text
-                      style={[styles.dateButtonText, { color: colors.text }]}
-                    >
-                      {'\uD83D\uDCC5'} {formatDate(selectedDate)}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <CalendarBlank size={18} color={colors.text} weight="duotone" />
+                      <Text style={[styles.dateButtonText, { color: colors.text }]}>
+                        {formatDate(selectedDate)}
+                      </Text>
+                    </View>
                     <Text
                       style={[
                         styles.dateButtonHint,
@@ -367,42 +414,39 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
                         : 'Tap to change'}
                     </Text>
                   </View>
-                </BlurView>
+                </View>
               </AnimatedPressable>
 
               {showDatePicker && (
                 <>
                   {Platform.OS === 'ios' && (
-                    <BlurView
-                      intensity={isDark ? GLASS.blurIntensity : 40}
-                      tint={isDark ? 'dark' : 'light'}
+                    <View
                       style={[
                         styles.datePickerContainer,
                         {
-                          backgroundColor: isDark
-                            ? GLASS.bgLight
-                            : 'rgba(255, 255, 255, 0.6)',
+                          backgroundColor: cardBg,
+                          borderColor: borderColor,
                         },
                       ]}
                     >
                       <View
                         style={[
                           styles.datePickerHeader,
-                          { borderBottomColor: GLASS.borderColor },
+                          { borderBottomColor: borderColor },
                         ]}
                       >
                         <AnimatedPressable
                           onPress={() => setShowDatePicker(false)}
                           scaleValue={0.95}
                         >
-                          <LinearGradient
-                            colors={[ACCENT, ACCENT_LIGHT]}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 0 }}
-                            style={styles.datePickerDoneButton}
+                          <View
+                            style={[
+                              styles.datePickerDoneButton,
+                              { backgroundColor: colors.primary },
+                            ]}
                           >
                             <Text style={styles.datePickerDoneText}>Done</Text>
-                          </LinearGradient>
+                          </View>
                         </AnimatedPressable>
                       </View>
                       <DateTimePicker
@@ -415,7 +459,7 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
                         maximumDate={new Date()}
                         themeVariant={isDark ? 'dark' : 'light'}
                       />
-                    </BlurView>
+                    </View>
                   )}
                   {Platform.OS === 'android' && (
                     <DateTimePicker
@@ -452,41 +496,28 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
                       onPress={() => setPaidBy(member.user.id)}
                       scaleValue={0.95}
                     >
-                      {isSelected ? (
-                        <LinearGradient
-                          colors={[ACCENT, ACCENT_LIGHT]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 0 }}
-                          style={styles.chip}
-                        >
-                          <Text style={styles.chipTextActive}>
-                            {getMemberShortName(member.user.id)}
-                          </Text>
-                        </LinearGradient>
-                      ) : (
-                        <BlurView
-                          intensity={isDark ? 40 : 25}
-                          tint={isDark ? 'dark' : 'light'}
+                      <View
+                        style={[
+                          styles.chip,
+                          isSelected
+                            ? { backgroundColor: colors.primary }
+                            : {
+                                backgroundColor: inputBg,
+                                borderWidth: 0.5,
+                                borderColor: borderColor,
+                              },
+                        ]}
+                      >
+                        <Text
                           style={[
-                            styles.chip,
-                            styles.chipInactive,
-                            {
-                              backgroundColor: isDark
-                                ? GLASS.bgLight
-                                : 'rgba(255, 255, 255, 0.6)',
-                            },
+                            styles.chipText,
+                            { color: isSelected ? '#FFFFFF' : colors.text },
+                            isSelected && { fontWeight: '700' },
                           ]}
                         >
-                          <Text
-                            style={[
-                              styles.chipText,
-                              { color: colors.text },
-                            ]}
-                          >
-                            {getMemberShortName(member.user.id)}
-                          </Text>
-                        </BlurView>
-                      )}
+                          {getMemberShortName(member.user.id)}
+                        </Text>
+                      </View>
                     </AnimatedPressable>
                   );
                 })}
@@ -514,41 +545,28 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
                       scaleValue={0.96}
                       style={styles.splitTypeButtonWrapper}
                     >
-                      {isSelected ? (
-                        <LinearGradient
-                          colors={[ACCENT, ACCENT_LIGHT]}
-                          start={{ x: 0, y: 0 }}
-                          end={{ x: 1, y: 0 }}
-                          style={styles.splitTypeButton}
-                        >
-                          <Text style={styles.splitTypeButtonTextActive}>
-                            {option.label}
-                          </Text>
-                        </LinearGradient>
-                      ) : (
-                        <BlurView
-                          intensity={isDark ? 40 : 25}
-                          tint={isDark ? 'dark' : 'light'}
+                      <View
+                        style={[
+                          styles.splitTypeButton,
+                          isSelected
+                            ? { backgroundColor: colors.primary }
+                            : {
+                                backgroundColor: inputBg,
+                                borderWidth: 0.5,
+                                borderColor: borderColor,
+                              },
+                        ]}
+                      >
+                        <Text
                           style={[
-                            styles.splitTypeButton,
-                            styles.splitTypeButtonInactive,
-                            {
-                              backgroundColor: isDark
-                                ? GLASS.bgLight
-                                : 'rgba(255, 255, 255, 0.6)',
-                            },
+                            styles.splitTypeButtonText,
+                            { color: isSelected ? '#FFFFFF' : colors.text },
+                            isSelected && { fontWeight: '700' },
                           ]}
                         >
-                          <Text
-                            style={[
-                              styles.splitTypeButtonText,
-                              { color: colors.text },
-                            ]}
-                          >
-                            {option.label}
-                          </Text>
-                        </BlurView>
-                      )}
+                          {option.label}
+                        </Text>
+                      </View>
                     </AnimatedPressable>
                   );
                 })}
@@ -562,9 +580,16 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
               >
                 SPLIT BETWEEN
               </Text>
-              <GlassCard
-                style={styles.membersCard}
-                tint={isDark ? 'dark' : 'light'}
+              <View
+                style={[
+                  styles.membersCard,
+                  {
+                    backgroundColor: cardBg,
+                    borderWidth: 0.5,
+                    borderColor: borderColor,
+                    borderRadius: BENTO_RADIUS,
+                  },
+                ]}
               >
                 {members.map((member, index) => {
                   const isSelected = selectedMembers.has(member.user.id);
@@ -578,8 +603,8 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
                         style={[
                           styles.memberRow,
                           index < members.length - 1 && {
-                            borderBottomWidth: 1,
-                            borderBottomColor: GLASS.borderColor,
+                            borderBottomWidth: 0.5,
+                            borderBottomColor: borderColor,
                           },
                         ]}
                       >
@@ -587,13 +612,19 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
                           <View
                             style={[
                               styles.checkbox,
-                              isSelected && styles.checkboxSelected,
+                              {
+                                borderColor: isDark
+                                  ? 'rgba(255,255,255,0.2)'
+                                  : 'rgba(0,0,0,0.15)',
+                              },
+                              isSelected && {
+                                backgroundColor: colors.primary,
+                                borderColor: colors.primary,
+                              },
                             ]}
                           >
                             {isSelected && (
-                              <Text style={styles.checkmark}>
-                                {'\u2713'}
-                              </Text>
+                              <Check size={16} color={colors.primary} weight="bold" />
                             )}
                           </View>
                           <Text
@@ -622,10 +653,22 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
                     </AnimatedPressable>
                   );
                 })}
-              </GlassCard>
+              </View>
             </Animated.View>
 
             {/* ─── Per-Person Amounts (Exact / Percentage) ────────────── */}
+            {splitType !== 'equal' && selectedMemberIds.length > 0 && (
+              /* shares hint */
+              splitType === 'shares' && (
+                <Animated.View entering={FadeInDown.delay(780).duration(400)}>
+                  <View style={[styles.sharesHint, { backgroundColor: colors.inputBg, borderColor: borderColor }]}>
+                    <Text style={[styles.sharesHintText, { color: colors.textSecondary }]}>
+                      Enter share counts (e.g. 2, 1). Cost is split proportionally.
+                    </Text>
+                  </View>
+                </Animated.View>
+              )
+            )}
             {splitType !== 'equal' && selectedMemberIds.length > 0 && (
               <Animated.View entering={FadeInDown.delay(800).duration(500)}>
                 <Text
@@ -633,7 +676,9 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
                 >
                   {splitType === 'exact'
                     ? 'AMOUNT PER PERSON'
-                    : 'PERCENTAGE PER PERSON'}
+                    : splitType === 'percentage'
+                    ? 'PERCENTAGE PER PERSON'
+                    : 'SHARES PER PERSON'}
                 </Text>
                 {selectedMemberIds.map((memberId) => {
                   const member = members.find((m) => m.user.id === memberId);
@@ -649,21 +694,31 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
                         {getMemberShortName(memberId)}
                       </Text>
                       <View style={styles.splitInputWrapper}>
-                        <GlassInput
-                          placeholder="0"
-                          placeholderColor={colors.textSecondary}
-                          textColor={colors.text}
-                          isDark={isDark}
-                          value={splitAmounts[memberId] || ''}
-                          onChangeText={(text) =>
-                            setSplitAmounts((prev) => ({
-                              ...prev,
-                              [memberId]: text,
-                            }))
-                          }
-                          keyboardType="decimal-pad"
-                          containerStyle={styles.splitInputContainer}
-                        />
+                        <View
+                          style={[
+                            styles.appleInput,
+                            {
+                              backgroundColor: inputBg,
+                              borderColor: borderColor,
+                              flex: 1,
+                              marginBottom: 8,
+                            },
+                          ]}
+                        >
+                          <TextInput
+                            placeholder="0"
+                            placeholderTextColor={colors.textSecondary}
+                            style={[styles.appleInputText, { color: colors.text }]}
+                            value={splitAmounts[memberId] || ''}
+                            onChangeText={(text) =>
+                              setSplitAmounts((prev) => ({
+                                ...prev,
+                                [memberId]: text,
+                              }))
+                            }
+                            keyboardType="decimal-pad"
+                          />
+                        </View>
                         {splitType === 'percentage' && (
                           <Text
                             style={[
@@ -674,56 +729,93 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
                             %
                           </Text>
                         )}
+                        {splitType === 'shares' && (
+                          <Text
+                            style={[
+                              styles.percentSuffix,
+                              { color: colors.textSecondary },
+                            ]}
+                          >
+                            sh
+                          </Text>
+                        )}
                       </View>
                     </View>
                   );
                 })}
                 {/* Summary row */}
-                <View style={styles.splitSummaryRow}>
-                  <Text
-                    style={[
-                      styles.splitSummaryLabel,
-                      { color: colors.textSecondary },
-                    ]}
-                  >
-                    {splitType === 'exact' ? 'Total:' : 'Sum:'}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.splitSummaryValue,
-                      {
-                        color: (() => {
-                          const sum = selectedMemberIds.reduce((acc, id) => {
-                            return (
-                              acc +
-                              (parseFloat(splitAmounts[id] || '0') || 0)
-                            );
-                          }, 0);
-                          const target =
-                            splitType === 'exact'
-                              ? parseFloat(amount) || 0
-                              : 100;
-                          return Math.abs(sum - target) < 0.01
-                            ? '#4CAF50'
-                            : '#FF5252';
-                        })(),
-                      },
-                    ]}
-                  >
-                    {selectedMemberIds
-                      .reduce((acc, id) => {
+                {splitType !== 'shares' && (
+                  <View style={styles.splitSummaryRow}>
+                    <Text
+                      style={[
+                        styles.splitSummaryLabel,
+                        { color: colors.textSecondary },
+                      ]}
+                    >
+                      {splitType === 'exact' ? 'Total:' : 'Sum:'}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.splitSummaryValue,
+                        {
+                          color: (() => {
+                            const sum = selectedMemberIds.reduce((acc, id) => {
+                              return (
+                                acc +
+                                (parseFloat(splitAmounts[id] || '0') || 0)
+                              );
+                            }, 0);
+                            const target =
+                              splitType === 'exact'
+                                ? parseFloat(amount) || 0
+                                : 100;
+                            return Math.abs(sum - target) < 0.01
+                              ? colors.success
+                              : colors.error;
+                          })(),
+                        },
+                      ]}
+                    >
+                      {selectedMemberIds
+                        .reduce((acc, id) => {
+                          return (
+                            acc +
+                            (parseFloat(splitAmounts[id] || '0') || 0)
+                          );
+                        }, 0)
+                        .toFixed(splitType === 'percentage' ? 1 : 2)}
+                      {splitType === 'percentage' ? '%' : ''}{' '}
+                      {splitType === 'exact'
+                        ? `/ ${(parseFloat(amount) || 0).toFixed(2)}`
+                        : '/ 100%'}
+                    </Text>
+                  </View>
+                )}
+                {splitType === 'shares' && (() => {
+                  const totalShares = selectedMemberIds.reduce(
+                    (acc, id) => acc + (parseFloat(splitAmounts[id] || '0') || 0),
+                    0
+                  );
+                  const numericAmount = parseFloat(amount) || 0;
+                  return (
+                    <View style={[styles.sharesPreview, { borderColor: borderColor }]}>
+                      {selectedMemberIds.map((id) => {
+                        const sh = parseFloat(splitAmounts[id] || '0') || 0;
+                        const portion = totalShares > 0 ? (sh / totalShares) * numericAmount : 0;
                         return (
-                          acc +
-                          (parseFloat(splitAmounts[id] || '0') || 0)
+                          <View key={id} style={styles.sharesPreviewRow}>
+                            <Text style={[styles.sharesPreviewName, { color: colors.textSecondary }]}>
+                              {getMemberShortName(id)}
+                            </Text>
+                            <Text style={[styles.sharesPreviewAmount, { color: colors.text }]}>
+                              {portion.toFixed(2)}
+                            </Text>
+                          </View>
                         );
-                      }, 0)
-                      .toFixed(splitType === 'percentage' ? 1 : 2)}
-                    {splitType === 'percentage' ? '%' : ''}{' '}
-                    {splitType === 'exact'
-                      ? `/ ${(parseFloat(amount) || 0).toFixed(2)}`
-                      : '/ 100%'}
-                  </Text>
-                </View>
+                      })}
+                    </View>
+                  );
+                })()}
               </Animated.View>
             )}
 
@@ -735,12 +827,10 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
                 scaleValue={0.97}
                 pressedOpacity={0.9}
               >
-                <LinearGradient
-                  colors={[ACCENT, ACCENT_LIGHT]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
+                <View
                   style={[
                     styles.submitButton,
+                    { backgroundColor: colors.primary },
                     loading && styles.submitButtonDisabled,
                   ]}
                 >
@@ -749,7 +839,7 @@ export default function AddGroupExpenseScreen({ navigation, route }: any) {
                   ) : (
                     <Text style={styles.submitButtonText}>Add Expense</Text>
                   )}
-                </LinearGradient>
+                </View>
               </AnimatedPressable>
             </Animated.View>
 
@@ -771,13 +861,11 @@ const styles = StyleSheet.create({
   headerWrapper: {
     overflow: 'hidden',
   },
-  headerGradient: {
-    paddingBottom: 14,
-  },
   headerSafeArea: {},
   headerContent: {
     paddingHorizontal: 16,
     paddingTop: 8,
+    paddingBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
@@ -785,20 +873,16 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 24,
     fontWeight: '800',
-    color: '#FFFFFF',
     letterSpacing: -0.3,
   },
-  glassBackButton: {
+  backButton: {
     borderRadius: 12,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
     paddingHorizontal: 12,
     paddingVertical: 8,
   },
-  glassBackButtonText: {
+  backButtonText: {
     fontSize: 18,
-    color: '#FFFFFF',
     fontWeight: '600',
   },
 
@@ -821,12 +905,24 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
 
+  // ─── Apple-style Input ────────────────────────────────────────────────
+  appleInput: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 0.5,
+    padding: 16,
+    marginBottom: 14,
+  },
+  appleInputText: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+
   // ─── Date Button ─────────────────────────────────────────────────────
   dateButton: {
     borderRadius: 14,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 0.5,
     padding: 16,
     marginBottom: 14,
   },
@@ -846,16 +942,15 @@ const styles = StyleSheet.create({
   datePickerContainer: {
     marginTop: 4,
     marginBottom: 14,
-    borderRadius: GLASS.borderRadius,
+    borderRadius: BENTO_RADIUS,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 0.5,
   },
   datePickerHeader: {
     flexDirection: 'row',
     justifyContent: 'flex-end',
     padding: 12,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0.5,
   },
   datePickerDoneButton: {
     paddingHorizontal: 20,
@@ -886,18 +981,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  chipInactive: {
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
   chipText: {
     fontSize: 14,
     fontWeight: '600',
-  },
-  chipTextActive: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
   },
 
   // ─── Split Type Toggle ───────────────────────────────────────────────
@@ -917,24 +1003,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  splitTypeButtonInactive: {
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
   splitTypeButtonText: {
     fontSize: 14,
     fontWeight: '600',
-  },
-  splitTypeButtonTextActive: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#FFFFFF',
   },
 
   // ─── Members List ────────────────────────────────────────────────────
   membersCard: {
     padding: 0,
     marginBottom: 18,
+    overflow: 'hidden',
   },
   memberRow: {
     flexDirection: 'row',
@@ -954,13 +1032,8 @@ const styles = StyleSheet.create({
     height: 24,
     borderRadius: 8,
     borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  checkboxSelected: {
-    backgroundColor: ACCENT,
-    borderColor: ACCENT,
   },
   checkmark: {
     color: '#FFFFFF',
@@ -993,10 +1066,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  splitInputContainer: {
-    flex: 1,
-    marginBottom: 8,
-  },
   percentSuffix: {
     fontSize: 16,
     fontWeight: '700',
@@ -1021,6 +1090,37 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
+  // ─── Shares hint / preview ───────────────────────────────────────────
+  sharesHint: {
+    borderRadius: 12,
+    borderWidth: 0.5,
+    padding: 12,
+    marginBottom: 12,
+  },
+  sharesHintText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  sharesPreview: {
+    borderTopWidth: 0.5,
+    marginTop: 4,
+    paddingTop: 10,
+    marginBottom: 18,
+  },
+  sharesPreviewRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 4,
+  },
+  sharesPreviewName: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  sharesPreviewAmount: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+
   // ─── Submit Button ───────────────────────────────────────────────────
   submitButton: {
     borderRadius: 14,
@@ -1029,11 +1129,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 8,
-    shadowColor: ACCENT,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 6,
   },
   submitButtonDisabled: {
     opacity: 0.6,

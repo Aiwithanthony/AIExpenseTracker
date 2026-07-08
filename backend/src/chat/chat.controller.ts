@@ -4,6 +4,7 @@ import { ChatService } from './chat.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { User } from '../entities/user.entity';
+import { toLlmHttpError } from '../common/utils/llm-error';
 
 export class AskQuestionDto {
   @IsString()
@@ -20,12 +21,16 @@ export class ChatController {
     @CurrentUser() user: User,
     @Body() dto: AskQuestionDto,
   ) {
-    const answer = await this.chatService.answerQuestion(
-      user.id,
-      dto.question,
-      user.currency,
-    );
-    return { answer };
+    try {
+      const answer = await this.chatService.answerQuestion(
+        user.id,
+        dto.question,
+        user.currency,
+      );
+      return { answer };
+    } catch (error) {
+      throw toLlmHttpError(error);
+    }
   }
 }
 

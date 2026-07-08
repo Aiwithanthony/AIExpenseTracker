@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, Alert, ActivityIndicator, Animated } from 'react-native';
+import { View, StyleSheet, Alert, ActivityIndicator, Animated } from 'react-native';
+import { Text } from '../components/AppText';
 // SafeAreaView removed — this screen is inside a stack navigator with a visible header
+import { Microphone, Stop } from 'phosphor-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { AudioModule, setAudioModeAsync, RecordingPresets, useAudioRecorder, useAudioRecorderState } from 'expo-audio';
 import { api } from '../services/api';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import ReanimatedAnimated, {
   FadeInDown,
   FadeIn,
@@ -19,23 +19,14 @@ import ReanimatedAnimated, {
 import GlassCard from '../components/GlassCard';
 import AnimatedPressable from '../components/AnimatedPressable';
 
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  borderColorStrong: 'rgba(255, 255, 255, 0.3)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  bgMedium: 'rgba(255, 255, 255, 0.12)',
-  bgDark: 'rgba(0, 0, 0, 0.2)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
+const BENTO_RADIUS = 18;
 
 /* ── Pulsing ring around the mic button ── */
-const PulsingRing: React.FC<{ active: boolean; delay: number; size: number }> = ({
+const PulsingRing: React.FC<{ active: boolean; delay: number; size: number; color: string }> = ({
   active,
   delay,
   size,
+  color,
 }) => {
   const pulse = useSharedValue(0);
 
@@ -72,7 +63,7 @@ const PulsingRing: React.FC<{ active: boolean; delay: number; size: number }> = 
           height: size,
           borderRadius: size / 2,
           borderWidth: 2,
-          borderColor: active ? '#FF3B30' : ACCENT_LIGHT,
+          borderColor: active ? '#E0503C' : color,
         },
         ringStyle,
       ]}
@@ -81,7 +72,7 @@ const PulsingRing: React.FC<{ active: boolean; delay: number; size: number }> = 
 };
 
 /* ── Pulsing red dot indicator ── */
-const PulsingDot: React.FC = () => {
+const PulsingDot: React.FC<{ color?: string }> = ({ color = '#E0503C' }) => {
   const dotOpacity = useSharedValue(1);
 
   useEffect(() => {
@@ -106,7 +97,7 @@ const PulsingDot: React.FC = () => {
           width: 12,
           height: 12,
           borderRadius: 6,
-          backgroundColor: '#FF3B30',
+          backgroundColor: color,
           marginRight: 8,
         },
         animStyle,
@@ -301,18 +292,21 @@ export default function VoiceInputScreen({ navigation }: any) {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const cardBg = colors.card;
+  const inputBg = colors.inputBg;
+  const borderColor = colors.border;
+
   return (
-    <LinearGradient
-      colors={['#0D0221', '#1A0533', ACCENT + '40']}
-      style={styles.gradientRoot}
-    >
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
       <View style={styles.safeArea}>
         <View style={styles.container}>
 
           {/* ── Title Area ── */}
-          <ReanimatedAnimated.View entering={FadeInDown.duration(500)} style={styles.titleArea}>
-            <Text style={styles.title}>Voice Input</Text>
-            <Text style={styles.subtitle}>Record your expense description</Text>
+          <ReanimatedAnimated.View entering={FadeInDown.duration(400)} style={styles.titleArea}>
+            <Text style={[styles.title, { color: colors.text }]}>Voice Input</Text>
+            <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+              Record your expense description
+            </Text>
           </ReanimatedAnimated.View>
 
           {/* ── Main Content ── */}
@@ -322,9 +316,9 @@ export default function VoiceInputScreen({ navigation }: any) {
             <ReanimatedAnimated.View entering={FadeIn.duration(600).delay(200)} style={styles.micSection}>
               <View style={styles.micRingWrapper}>
                 {/* Concentric pulsing rings (visible when recording) */}
-                <PulsingRing active={isRecording} delay={0} size={90} />
-                <PulsingRing active={isRecording} delay={300} size={90} />
-                <PulsingRing active={isRecording} delay={600} size={90} />
+                <PulsingRing active={isRecording} delay={0} size={90} color={colors.primary} />
+                <PulsingRing active={isRecording} delay={300} size={90} color={colors.primary} />
+                <PulsingRing active={isRecording} delay={600} size={90} color={colors.primary} />
 
                 <AnimatedPressable
                   onPress={isRecording ? stopRecording : startRecording}
@@ -332,18 +326,22 @@ export default function VoiceInputScreen({ navigation }: any) {
                   scaleValue={0.92}
                   style={styles.micPressable}
                 >
-                  <BlurView
-                    intensity={GLASS.blurIntensity}
-                    tint={isDark ? 'dark' : 'light'}
+                  <View
                     style={[
                       styles.micButton,
-                      isRecording && styles.micButtonRecording,
+                      {
+                        backgroundColor: isRecording ? colors.error : colors.primary,
+                        borderWidth: 0.5,
+                        borderColor: borderColor,
+                      },
                     ]}
                   >
-                    <Text style={styles.micIcon}>
-                      {isRecording ? '\u23F9' : '\uD83C\uDFA4'}
-                    </Text>
-                  </BlurView>
+                    {isRecording ? (
+                      <Stop size={40} color="#FFFFFF" weight="fill" />
+                    ) : (
+                      <Microphone size={40} color="#FFFFFF" weight="fill" />
+                    )}
+                  </View>
                 </AnimatedPressable>
               </View>
             </ReanimatedAnimated.View>
@@ -356,12 +354,14 @@ export default function VoiceInputScreen({ navigation }: any) {
               >
                 {/* Recording indicator with pulsing dot */}
                 <View style={styles.recordingIndicator}>
-                  <PulsingDot />
-                  <Text style={styles.recordingText}>Recording...</Text>
+                  <PulsingDot color={colors.error} />
+                  <Text style={[styles.recordingText, { color: colors.error }]}>Recording...</Text>
                 </View>
 
                 {/* Duration */}
-                <Text style={styles.durationText}>{formatDuration(recordingDuration)}</Text>
+                <Text style={[styles.durationText, { color: colors.text }]}>
+                  {formatDuration(recordingDuration)}
+                </Text>
 
                 {/* Stop & Process button */}
                 <AnimatedPressable
@@ -370,18 +370,13 @@ export default function VoiceInputScreen({ navigation }: any) {
                   scaleValue={0.95}
                   style={styles.actionButtonWrapper}
                 >
-                  <LinearGradient
-                    colors={['#FF3B30', '#CC2D25']}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.actionButton}
-                  >
+                  <View style={[styles.actionButton, { backgroundColor: colors.error }]}>
                     {processing ? (
                       <ActivityIndicator color="#fff" />
                     ) : (
                       <Text style={styles.buttonText}>Stop & Process</Text>
                     )}
-                  </LinearGradient>
+                  </View>
                 </AnimatedPressable>
               </ReanimatedAnimated.View>
             ) : (
@@ -396,14 +391,9 @@ export default function VoiceInputScreen({ navigation }: any) {
                   scaleValue={0.95}
                   style={styles.actionButtonWrapper}
                 >
-                  <LinearGradient
-                    colors={[ACCENT, ACCENT_LIGHT]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 1 }}
-                    style={styles.actionButton}
-                  >
+                  <View style={[styles.actionButton, { backgroundColor: colors.primary }]}>
                     <Text style={styles.buttonText}>Start Recording</Text>
-                  </LinearGradient>
+                  </View>
                 </AnimatedPressable>
               </ReanimatedAnimated.View>
             )}
@@ -415,32 +405,33 @@ export default function VoiceInputScreen({ navigation }: any) {
                 style={styles.processingWrapper}
               >
                 <GlassCard
-                  intensity={GLASS.blurIntensity}
                   tint={isDark ? 'dark' : 'light'}
-                  style={styles.progressCard}
+                  style={[
+                    styles.progressCard,
+                    {
+                      backgroundColor: cardBg,
+                      borderColor: borderColor,
+                      borderWidth: 0.5,
+                      borderRadius: BENTO_RADIUS,
+                    },
+                  ]}
                 >
-                  <ActivityIndicator size="large" color={ACCENT_LIGHT} style={styles.spinner} />
+                  <ActivityIndicator size="large" color={colors.primary} style={styles.spinner} />
 
-                  {/* Progress Bar with gradient fill */}
-                  <View style={styles.progressBarContainer}>
+                  {/* Progress Bar */}
+                  <View style={[styles.progressBarContainer, { backgroundColor: inputBg }]}>
                     <Animated.View
                       style={[
                         styles.progressBarFill,
                         {
+                          backgroundColor: colors.primary,
                           width: progressAnim.interpolate({
                             inputRange: [0, 1],
                             outputRange: ['0%', '100%'],
                           }),
                         },
                       ]}
-                    >
-                      <LinearGradient
-                        colors={[ACCENT, ACCENT_LIGHT, '#A855F7']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={StyleSheet.absoluteFill}
-                      />
-                    </Animated.View>
+                    />
                   </View>
 
                   {/* Status Text */}
@@ -449,7 +440,7 @@ export default function VoiceInputScreen({ navigation }: any) {
                   </Text>
 
                   {/* Progress Percentage */}
-                  <Text style={[styles.progressPercentage, { color: colors.text, opacity: 0.6 }]}>
+                  <Text style={[styles.progressPercentage, { color: colors.textSecondary }]}>
                     {Math.round(progress)}%
                   </Text>
                 </GlassCard>
@@ -458,12 +449,12 @@ export default function VoiceInputScreen({ navigation }: any) {
           </View>
         </View>
       </View>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  gradientRoot: {
+  root: {
     flex: 1,
   },
   safeArea: {
@@ -483,13 +474,11 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '700',
-    color: '#FFFFFF',
     textAlign: 'center',
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.6)',
     textAlign: 'center',
   },
 
@@ -521,12 +510,7 @@ const styles = StyleSheet.create({
     borderRadius: 45,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: GLASS.borderColorStrong,
     overflow: 'hidden',
-  },
-  micButtonRecording: {
-    borderColor: 'rgba(255, 59, 48, 0.5)',
   },
   micIcon: {
     fontSize: 32,
@@ -546,12 +530,10 @@ const styles = StyleSheet.create({
   recordingText: {
     fontSize: 18,
     fontWeight: '600',
-    color: '#FF3B30',
   },
   durationText: {
     fontSize: 48,
     fontWeight: '700',
-    color: '#FFFFFF',
     marginBottom: 28,
     letterSpacing: 2,
   },
@@ -588,8 +570,6 @@ const styles = StyleSheet.create({
   },
   progressCard: {
     alignItems: 'center',
-    borderColor: GLASS.borderColor,
-    backgroundColor: GLASS.bgLight,
   },
   spinner: {
     marginBottom: 16,
@@ -598,7 +578,6 @@ const styles = StyleSheet.create({
     width: '100%',
     height: 8,
     borderRadius: 4,
-    backgroundColor: GLASS.bgDark,
     overflow: 'hidden',
   },
   progressBarFill: {
@@ -610,11 +589,9 @@ const styles = StyleSheet.create({
     marginTop: 16,
     fontSize: 16,
     fontWeight: '500',
-    color: '#FFFFFF',
   },
   progressPercentage: {
     marginTop: 8,
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.6)',
   },
 });

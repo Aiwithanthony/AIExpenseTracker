@@ -9,6 +9,7 @@ import { GroupMember } from '../entities/group-member.entity';
 import { GroupExpenseSplit } from '../entities/group-expense-split.entity';
 import { GroupSettlement } from '../entities/group-settlement.entity';
 import { GroupInvite } from '../entities/group-invite.entity';
+import { GroupExpenseComment } from '../entities/group-expense-comment.entity';
 import { User } from '../entities/user.entity';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { CurrencyModule } from '../currency/currency.module';
@@ -22,6 +23,7 @@ import { CurrencyModule } from '../currency/currency.module';
       GroupExpenseSplit,
       GroupSettlement,
       GroupInvite,
+      GroupExpenseComment,
       User,
     ]),
     SubscriptionsModule,

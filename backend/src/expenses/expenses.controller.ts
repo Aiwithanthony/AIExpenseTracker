@@ -33,7 +33,7 @@ export class ExpensesController {
 
   @Get()
   findAll(@CurrentUser() user: User, @Query() query: ExpenseQueryDto) {
-    return this.expensesService.findAll(user.id, query);
+    return this.expensesService.findAll(user.id, query, user.currency);
   }
 
   @Post('reconvert')
@@ -66,7 +66,7 @@ export class ExpensesController {
     @Param('id') id: string,
     @Body() updateDto: UpdateExpenseDto,
   ) {
-    return this.expensesService.update(user.id, id, updateDto);
+    return this.expensesService.update(user.id, id, updateDto, user.currency);
   }
 
   @Delete(':id')

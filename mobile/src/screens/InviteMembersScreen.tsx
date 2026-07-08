@@ -1,34 +1,26 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
   ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Share,
 } from 'react-native';
+import { Text, TextInput } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useFocusEffect } from '@react-navigation/native';
 import * as Clipboard from 'expo-clipboard';
+import { X } from 'phosphor-react-native';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
-import GlassCard from '../components/GlassCard';
-import GlassInput from '../components/GlassInput';
 import AnimatedPressable from '../components/AnimatedPressable';
 
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
+const BENTO_RADIUS = 18;
 
 interface Member {
   id: string;
@@ -82,6 +74,10 @@ export default function InviteMembersScreen({ route, navigation }: any) {
   const currentUserIsAdmin = members.some(
     (m) => m.userId === user?.id && m.role === 'admin',
   );
+
+  const cardBg = colors.card;
+  const inputBg = colors.inputBg;
+  const borderColor = colors.border;
 
   const loadData = useCallback(async () => {
     try {
@@ -198,17 +194,20 @@ export default function InviteMembersScreen({ route, navigation }: any) {
 
   const handleSendInvite = async () => {
     const trimmed = inviteEmail.trim();
-    if (!trimmed) {
-      Alert.alert('Error', 'Please enter an email address');
-      return;
-    }
     setSendingInvite(true);
     try {
-      await api.createGroupInvite(groupId, trimmed);
-      Alert.alert('Success', `Invitation sent to ${trimmed}`);
+      const invite = await api.createGroupInvite(groupId, trimmed || undefined);
+      const link = invite.webLink || invite.deepLink;
+      const groupName = groupDetails?.name || 'our group';
+
+      // No mailer exists — share the invite link via the OS share sheet so the
+      // recipient can open it and join.
+      await Share.share({
+        message: `Join "${groupName}" on Expense Tracker: ${link}`,
+      });
       setInviteEmail('');
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to send invite');
+      Alert.alert('Error', error.message || 'Failed to create invite link');
     } finally {
       setSendingInvite(false);
     }
@@ -216,51 +215,41 @@ export default function InviteMembersScreen({ route, navigation }: any) {
 
   if (loading) {
     return (
-      <View style={[styles.container, { backgroundColor: isDark ? '#0D0D0D' : colors.background }]}>
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
         <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
-          <LinearGradient
-            colors={['#1A0030', '#2D004F', ACCENT]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.header}
-          >
+          <View style={[styles.header, { borderBottomColor: borderColor, borderBottomWidth: 0.5 }]}>
             <View style={styles.headerRow}>
               <AnimatedPressable onPress={() => navigation.goBack()} scaleValue={0.9} style={styles.backButton}>
-                <Text style={styles.backText}>{'\u2039'}</Text>
+                <Text style={[styles.backText, { color: colors.primary }]}>{'\u2039'}</Text>
               </AnimatedPressable>
-              <Text style={styles.title}>Members</Text>
+              <Text style={[styles.title, { color: colors.text }]}>Members</Text>
               <View style={styles.headerSpacer} />
             </View>
-          </LinearGradient>
+          </View>
         </SafeAreaView>
         <View style={styles.centerContainer}>
-          <GlassCard style={styles.loadingCard} tint={isDark ? 'dark' : 'light'}>
-            <ActivityIndicator size="large" color={ACCENT} />
+          <View style={[styles.loadingCard, { backgroundColor: cardBg, borderColor, borderWidth: 0.5, borderRadius: BENTO_RADIUS }]}>
+            <ActivityIndicator size="large" color={colors.primary} />
             <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading members...</Text>
-          </GlassCard>
+          </View>
         </View>
       </View>
     );
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: isDark ? '#0D0D0D' : colors.background }]}>
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
         <Animated.View entering={FadeInDown.duration(500)}>
-          <LinearGradient
-            colors={['#1A0030', '#2D004F', ACCENT]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.header}
-          >
+          <View style={[styles.header, { borderBottomColor: borderColor, borderBottomWidth: 0.5 }]}>
             <View style={styles.headerRow}>
               <AnimatedPressable onPress={() => navigation.goBack()} scaleValue={0.9} style={styles.backButton}>
-                <Text style={styles.backText}>{'\u2039'}</Text>
+                <Text style={[styles.backText, { color: colors.primary }]}>{'\u2039'}</Text>
               </AnimatedPressable>
-              <Text style={styles.title}>Members</Text>
+              <Text style={[styles.title, { color: colors.text }]}>Members</Text>
               <View style={styles.headerSpacer} />
             </View>
-          </LinearGradient>
+          </View>
         </Animated.View>
       </SafeAreaView>
 
@@ -284,7 +273,7 @@ export default function InviteMembersScreen({ route, navigation }: any) {
                 key={member.id}
                 entering={FadeInDown.duration(400).delay(150 + index * 60)}
               >
-                <GlassCard style={styles.memberCard} tint={isDark ? 'dark' : 'light'}>
+                <View style={[styles.memberCard, { backgroundColor: cardBg, borderColor, borderWidth: 0.5, borderRadius: BENTO_RADIUS }]}>
                   <View style={styles.memberInfo}>
                     <Text style={[styles.memberName, { color: colors.text }]}>
                       {member.user.name}
@@ -295,11 +284,11 @@ export default function InviteMembersScreen({ route, navigation }: any) {
                   </View>
                   <View style={styles.memberActions}>
                     {member.role === 'admin' ? (
-                      <View style={[styles.roleBadge, styles.roleBadgeAdmin]}>
+                      <View style={[styles.roleBadge, { backgroundColor: colors.primary }]}>
                         <Text style={styles.roleBadgeTextAdmin}>Admin</Text>
                       </View>
                     ) : (
-                      <View style={[styles.roleBadge, styles.roleBadgeMember]}>
+                      <View style={[styles.roleBadge, { backgroundColor: inputBg, borderWidth: 0.5, borderColor }]}>
                         <Text style={[styles.roleBadgeTextMember, { color: colors.textSecondary }]}>Member</Text>
                       </View>
                     )}
@@ -313,12 +302,12 @@ export default function InviteMembersScreen({ route, navigation }: any) {
                         {removingUserId === member.userId ? (
                           <ActivityIndicator size="small" color="#FF3B30" />
                         ) : (
-                          <Text style={styles.removeButtonText}>{'\u2715'}</Text>
+                          <X size={18} color={colors.error} weight="bold" />
                         )}
                       </AnimatedPressable>
                     )}
                   </View>
-                </GlassCard>
+                </View>
               </Animated.View>
             ))}
           </Animated.View>
@@ -329,7 +318,7 @@ export default function InviteMembersScreen({ route, navigation }: any) {
               <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 24 }]}>
                 Invite Code
               </Text>
-              <GlassCard style={styles.inviteCodeCard} tint={isDark ? 'dark' : 'light'}>
+              <View style={[styles.inviteCodeCard, { backgroundColor: cardBg, borderColor, borderWidth: 0.5, borderRadius: BENTO_RADIUS }]}>
                 <Text style={[styles.inviteCodeLabel, { color: colors.textSecondary }]}>
                   Group Invite Code
                 </Text>
@@ -337,19 +326,14 @@ export default function InviteMembersScreen({ route, navigation }: any) {
                   {groupDetails.inviteCode}
                 </Text>
                 <AnimatedPressable onPress={handleCopyCode} scaleValue={0.97} style={styles.copyButtonWrapper}>
-                  <LinearGradient
-                    colors={[ACCENT, ACCENT_LIGHT]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.copyButton}
-                  >
+                  <View style={[styles.copyButton, { backgroundColor: colors.primary }]}>
                     <Text style={styles.copyButtonText}>Copy Code</Text>
-                  </LinearGradient>
+                  </View>
                 </AnimatedPressable>
                 <Text style={[styles.inviteDescription, { color: colors.textSecondary }]}>
                   Share this code with friends to let them join
                 </Text>
-              </GlassCard>
+              </View>
             </Animated.View>
           )}
 
@@ -358,12 +342,18 @@ export default function InviteMembersScreen({ route, navigation }: any) {
             <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 24 }]}>
               Add Members
             </Text>
-            <GlassInput
-              isDark={isDark}
-              textColor={colors.text}
-              labelColor={colors.textSecondary}
-              placeholderColor={colors.textSecondary}
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: inputBg,
+                  color: colors.text,
+                  borderColor,
+                  borderWidth: 0.5,
+                },
+              ]}
               placeholder="Search by name or email..."
+              placeholderTextColor={colors.textSecondary}
               value={searchQuery}
               onChangeText={setSearchQuery}
               autoCapitalize="none"
@@ -372,7 +362,7 @@ export default function InviteMembersScreen({ route, navigation }: any) {
 
             {searching && (
               <View style={styles.searchLoading}>
-                <ActivityIndicator size="small" color={ACCENT} />
+                <ActivityIndicator size="small" color={colors.primary} />
                 <Text style={[styles.searchLoadingText, { color: colors.textSecondary }]}>
                   Searching...
                 </Text>
@@ -380,11 +370,11 @@ export default function InviteMembersScreen({ route, navigation }: any) {
             )}
 
             {!searching && hasSearched && searchResults.length === 0 && (
-              <GlassCard style={styles.emptySearchCard} tint={isDark ? 'dark' : 'light'}>
+              <View style={[styles.emptySearchCard, { backgroundColor: cardBg, borderColor, borderWidth: 0.5, borderRadius: BENTO_RADIUS }]}>
                 <Text style={[styles.emptySearchText, { color: colors.textSecondary }]}>
                   No users found
                 </Text>
-              </GlassCard>
+              </View>
             )}
 
             {searchResults.map((result, index) => (
@@ -392,7 +382,7 @@ export default function InviteMembersScreen({ route, navigation }: any) {
                 key={result.id}
                 entering={FadeInDown.duration(300).delay(index * 50)}
               >
-                <GlassCard style={styles.searchResultCard} tint={isDark ? 'dark' : 'light'}>
+                <View style={[styles.searchResultCard, { backgroundColor: cardBg, borderColor, borderWidth: 0.5, borderRadius: BENTO_RADIUS }]}>
                   <View style={styles.searchResultInfo}>
                     <Text style={[styles.searchResultName, { color: colors.text }]}>
                       {result.name}
@@ -407,35 +397,38 @@ export default function InviteMembersScreen({ route, navigation }: any) {
                     disabled={addingUserId === result.id}
                     style={styles.addButtonWrapper}
                   >
-                    <LinearGradient
-                      colors={[ACCENT, ACCENT_LIGHT]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={[styles.addButton, addingUserId === result.id && { opacity: 0.6 }]}
+                    <View
+                      style={[styles.addButton, { backgroundColor: colors.primary }, addingUserId === result.id && { opacity: 0.6 }]}
                     >
                       {addingUserId === result.id ? (
                         <ActivityIndicator size="small" color="#FFFFFF" />
                       ) : (
                         <Text style={styles.addButtonText}>Add</Text>
                       )}
-                    </LinearGradient>
+                    </View>
                   </AnimatedPressable>
-                </GlassCard>
+                </View>
               </Animated.View>
             ))}
           </Animated.View>
 
-          {/* Email Invite Section */}
+          {/* Invite via Link Section */}
           <Animated.View entering={FadeInDown.duration(400).delay(600)}>
             <Text style={[styles.sectionTitle, { color: colors.text, marginTop: 24 }]}>
-              Invite via Email
+              Invite via Link
             </Text>
-            <GlassInput
-              isDark={isDark}
-              textColor={colors.text}
-              labelColor={colors.textSecondary}
-              placeholderColor={colors.textSecondary}
-              placeholder="Enter email address..."
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: inputBg,
+                  color: colors.text,
+                  borderColor,
+                  borderWidth: 0.5,
+                },
+              ]}
+              placeholder="Optional: note who you're inviting (email)"
+              placeholderTextColor={colors.textSecondary}
               value={inviteEmail}
               onChangeText={setInviteEmail}
               keyboardType="email-address"
@@ -448,19 +441,19 @@ export default function InviteMembersScreen({ route, navigation }: any) {
               scaleValue={0.97}
               style={styles.sendInviteWrapper}
             >
-              <LinearGradient
-                colors={[ACCENT, ACCENT_LIGHT]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={[styles.sendInviteButton, sendingInvite && { opacity: 0.6 }]}
+              <View
+                style={[styles.sendInviteButton, { backgroundColor: colors.primary }, sendingInvite && { opacity: 0.6 }]}
               >
                 {sendingInvite ? (
                   <ActivityIndicator color="#FFFFFF" />
                 ) : (
-                  <Text style={styles.sendInviteText}>Send Invite</Text>
+                  <Text style={styles.sendInviteText}>Create &amp; Share Invite Link</Text>
                 )}
-              </LinearGradient>
+              </View>
             </AnimatedPressable>
+            <Text style={[styles.inviteDescription, { color: colors.textSecondary, marginTop: 10 }]}>
+              Generates a link you can send via any app. The recipient opens it to join.
+            </Text>
           </Animated.View>
 
           <View style={styles.bottomSpacer} />
@@ -478,8 +471,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     paddingBottom: 24,
-    borderBottomLeftRadius: GLASS.borderRadius,
-    borderBottomRightRadius: GLASS.borderRadius,
   },
   headerRow: {
     flexDirection: 'row',
@@ -494,14 +485,12 @@ const styles = StyleSheet.create({
   },
   backText: {
     fontSize: 32,
-    color: '#FFFFFF',
     fontWeight: '300',
     marginTop: -2,
   },
   title: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#FFFFFF',
   },
   headerSpacer: {
     width: 40,
@@ -529,6 +518,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 12,
     letterSpacing: -0.3,
+  },
+
+  // Input
+  input: {
+    fontSize: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: BENTO_RADIUS,
+    marginBottom: 8,
   },
 
   // Members
@@ -561,14 +559,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 8,
   },
-  roleBadgeAdmin: {
-    backgroundColor: ACCENT,
-  },
-  roleBadgeMember: {
-    backgroundColor: GLASS.bgLight,
-    borderWidth: 1,
-    borderColor: GLASS.borderColor,
-  },
   roleBadgeTextAdmin: {
     color: '#FFFFFF',
     fontSize: 12,
@@ -587,7 +577,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   removeButtonText: {
-    color: '#FF3B30',
     fontSize: 14,
     fontWeight: '700',
   },
@@ -616,7 +605,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   copyButton: {
-    borderRadius: GLASS.borderRadius,
+    borderRadius: BENTO_RADIUS,
     paddingVertical: 14,
     alignItems: 'center',
   },
@@ -693,7 +682,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   sendInviteButton: {
-    borderRadius: GLASS.borderRadius,
+    borderRadius: BENTO_RADIUS,
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',

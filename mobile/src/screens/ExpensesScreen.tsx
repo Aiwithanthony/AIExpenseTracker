@@ -1,11 +1,9 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View,
-  Text,
   SectionList,
   StyleSheet,
   ActivityIndicator,
-  TextInput,
   Modal,
   ScrollView,
   Alert,
@@ -13,10 +11,9 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { Text, TextInput } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -24,22 +21,21 @@ import { useData } from '../context/DataContext';
 import { api } from '../services/api';
 import GlassCard from '../components/GlassCard';
 import AnimatedPressable from '../components/AnimatedPressable';
+import CategoryIcon from '../components/CategoryIcon';
+import {
+  Wallet,
+  Funnel,
+  Notepad,
+  MagnifyingGlass,
+  CaretRight,
+  CaretDown,
+  SortDescending,
+  SortAscending,
+  SquaresFour,
+} from 'phosphor-react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-// Design system tokens
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  borderColorStrong: 'rgba(255, 255, 255, 0.3)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  bgMedium: 'rgba(255, 255, 255, 0.12)',
-  bgDark: 'rgba(0, 0, 0, 0.2)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
-
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
+const BENTO_RADIUS = 18;
 
 interface Expense {
   id: string;
@@ -61,6 +57,36 @@ interface ExpenseSection {
   data: Expense[];
   total: number;
 }
+
+type SortMode = 'latest' | 'earliest' | 'category';
+
+// Matches DataContext's cache size so its refresh equals our page 1.
+const PAGE_SIZE = 100;
+
+/** Insertion timestamp — when the transaction was recorded (falls back to its date). */
+const insertedAt = (exp: Expense): number =>
+  new Date((exp as any).createdAt || exp.date).getTime();
+
+/** Local calendar-day key, used to segment the chronological views by date. */
+const dayKey = (d: string | Date): string => {
+  const x = new Date(d);
+  return `${x.getFullYear()}-${x.getMonth()}-${x.getDate()}`;
+};
+
+/** Human date header: Today / Yesterday / "7 Feb" (year added when not this year). */
+const dateLabel = (d: string | Date): string => {
+  const x = new Date(d);
+  const now = new Date();
+  if (dayKey(x) === dayKey(now)) return 'Today';
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (dayKey(x) === dayKey(yesterday)) return 'Yesterday';
+  return x.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: x.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+  });
+};
 
 export default function ExpensesScreen({ navigation, route }: any) {
   const { colors, isDark } = useTheme();
@@ -103,10 +129,16 @@ export default function ExpensesScreen({ navigation, route }: any) {
     maxAmount: '',
     type: '',
   });
-  // TODO: REMOVE SELECTION MODE BEFORE PRODUCTION - Testing purposes only!
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-
+  // 'latest' = most recently added first (default), 'earliest' = oldest first,
+  // 'category' = the classic grouped-by-category view with section totals.
+  const [sortMode, setSortMode] = useState<SortMode>('latest');
+  // Server-side pagination: the list used to silently cap at the first 100
+  // rows; now it loads further pages as you scroll. Refs track raw server
+  // rows (before the client-side type filter) so paging math stays correct.
+  const [loadingMore, setLoadingMore] = useState(false);
+  const pageRef = useRef(1);
+  const fetchedCountRef = useRef(0);
+  const totalCountRef = useRef(0);
   // Initialize from cache on mount
   useEffect(() => {
     if (cachedExpenses.length > 0) {
@@ -118,9 +150,13 @@ export default function ExpensesScreen({ navigation, route }: any) {
     }
   }, []);
 
-  // Update local state when cache updates
+  // Update local state when cache updates. The cache holds the first
+  // PAGE_SIZE rows, so treat it as a reset back to page 1.
   useEffect(() => {
     setExpenses(cachedExpenses);
+    pageRef.current = 1;
+    fetchedCountRef.current = cachedExpenses.length;
+    totalCountRef.current = Math.max(totalCountRef.current, cachedExpenses.length);
   }, [cachedExpenses]);
 
   useEffect(() => {
@@ -153,6 +189,22 @@ export default function ExpensesScreen({ navigation, route }: any) {
     }
   };
 
+  const buildParams = (page: number) => {
+    const params: any = { limit: PAGE_SIZE, page };
+    if (filters.categoryId) params.categoryId = filters.categoryId;
+    if (filters.startDate) params.startDate = filters.startDate;
+    if (filters.endDate) params.endDate = filters.endDate;
+    if (filters.minAmount) params.minAmount = parseFloat(filters.minAmount);
+    if (filters.maxAmount) params.maxAmount = parseFloat(filters.maxAmount);
+    if (searchQuery) params.search = searchQuery;
+    return params;
+  };
+
+  const applyTypeFilter = (rows: Expense[]): Expense[] =>
+    filters.type
+      ? rows.filter((exp: Expense) => (exp as any).type === filters.type)
+      : rows;
+
   const loadExpenses = async () => {
     // Only show loading if we don't have cached data
     if (cachedExpenses.length === 0) {
@@ -160,25 +212,13 @@ export default function ExpensesScreen({ navigation, route }: any) {
     }
 
     try {
-      const params: any = { limit: 100 };
-      if (filters.categoryId) params.categoryId = filters.categoryId;
-      if (filters.startDate) params.startDate = filters.startDate;
-      if (filters.endDate) params.endDate = filters.endDate;
-      if (filters.minAmount) params.minAmount = parseFloat(filters.minAmount);
-      if (filters.maxAmount) params.maxAmount = parseFloat(filters.maxAmount);
-      if (searchQuery) params.search = searchQuery;
+      const data: any = await api.getExpenses(buildParams(1));
+      const raw = (data?.expenses || []) as Expense[];
+      pageRef.current = 1;
+      fetchedCountRef.current = raw.length;
+      totalCountRef.current = data?.total ?? raw.length;
 
-      const data: any = await api.getExpenses(params);
-      let filteredExpenses = (data?.expenses || []) as Expense[];
-
-      // Filter by type if specified
-      if (filters.type) {
-        filteredExpenses = filteredExpenses.filter(
-          (exp: Expense) => (exp as any).type === filters.type
-        );
-      }
-
-      setExpenses(filteredExpenses);
+      setExpenses(applyTypeFilter(raw));
       // Also update cache (silently, in background)
       if (!filters.categoryId && !filters.startDate && !filters.endDate &&
           !filters.minAmount && !filters.maxAmount && !filters.type && !searchQuery) {
@@ -189,6 +229,32 @@ export default function ExpensesScreen({ navigation, route }: any) {
       console.error('Error loading expenses:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  /** Fetch the next page when the list nears its end (infinite scroll). */
+  const loadMore = async () => {
+    if (loading || loadingMore) return;
+    if (fetchedCountRef.current >= totalCountRef.current) return;
+
+    setLoadingMore(true);
+    try {
+      const nextPage = pageRef.current + 1;
+      const data: any = await api.getExpenses(buildParams(nextPage));
+      const raw = (data?.expenses || []) as Expense[];
+      pageRef.current = nextPage;
+      fetchedCountRef.current += raw.length;
+      totalCountRef.current = data?.total ?? totalCountRef.current;
+
+      const more = applyTypeFilter(raw);
+      setExpenses((prev) => {
+        const seen = new Set(prev.map((e) => e.id));
+        return [...prev, ...more.filter((e) => !seen.has(e.id))];
+      });
+    } catch (error) {
+      console.warn('Error loading more expenses:', error);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -204,76 +270,6 @@ export default function ExpensesScreen({ navigation, route }: any) {
     setSearchQuery('');
   };
 
-  // TODO: REMOVE SELECTION MODE FUNCTIONS BEFORE PRODUCTION - Testing purposes only!
-  const toggleSelectionMode = () => {
-    setSelectionMode(!selectionMode);
-    setSelectedIds(new Set());
-  };
-
-  const toggleSelectExpense = (id: string) => {
-    const newSelected = new Set(selectedIds);
-    if (newSelected.has(id)) {
-      newSelected.delete(id);
-    } else {
-      newSelected.add(id);
-    }
-    setSelectedIds(newSelected);
-  };
-
-  const selectAllExpenses = () => {
-    if (selectedIds.size === filteredExpenses.length) {
-      // Deselect all
-      setSelectedIds(new Set());
-    } else {
-      // Select all
-      setSelectedIds(new Set(filteredExpenses.map(exp => exp.id)));
-    }
-  };
-
-  const deleteSelectedTransactions = async () => {
-    if (selectedIds.size === 0) return;
-
-    const count = selectedIds.size;
-    const idsToDelete = Array.from(selectedIds);
-
-    Alert.alert(
-      '\u26A0\uFE0F Delete Selected Transactions',
-      `Are you sure you want to delete ${count} transaction${count === 1 ? '' : 's'}? This action cannot be undone.`,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            setLoading(true);
-            try {
-              // Delete selected expenses
-              const deletePromises = idsToDelete.map(id =>
-                api.deleteExpense(id)
-              );
-              await Promise.all(deletePromises);
-
-              // Exit selection mode and reload expenses
-              setSelectionMode(false);
-              setSelectedIds(new Set());
-              await loadExpenses();
-
-              Alert.alert('Success', `${count} transaction${count === 1 ? '' : 's'} deleted.`);
-            } catch (error) {
-              console.error('Error deleting transactions:', error);
-              Alert.alert('Error', 'Failed to delete some transactions. Please try again.');
-            } finally {
-              setLoading(false);
-            }
-          },
-        },
-      ],
-    );
-  };
-
   const hasActiveFilters = Object.values(filters).some(v => v !== '') || searchQuery !== '';
 
   // Filter expenses by search query
@@ -287,8 +283,35 @@ export default function ExpensesScreen({ navigation, route }: any) {
     );
   }, [expenses, searchQuery]);
 
-  // Group expenses by category
+  // Build the list: chronological (flat, headerless) or grouped by category
   const groupedExpenses = useMemo(() => {
+    if (sortMode !== 'category') {
+      // Chronological: order by transaction date (then insertion time within a
+      // day) and segment into one section per calendar day.
+      const dir = sortMode === 'latest' ? -1 : 1;
+      const sorted = [...filteredExpenses].sort((a, b) => {
+        const byDate = new Date(a.date).getTime() - new Date(b.date).getTime();
+        if (byDate !== 0) return byDate * dir;
+        return (insertedAt(a) - insertedAt(b)) * dir;
+      });
+
+      const sections: ExpenseSection[] = [];
+      let currentKey = '';
+      for (const exp of sorted) {
+        const key = dayKey(exp.date);
+        if (key !== currentKey) {
+          currentKey = key;
+          sections.push({ title: dateLabel(exp.date), data: [], total: 0 });
+        }
+        const section = sections[sections.length - 1];
+        section.data.push(exp);
+        const amt = getDisplayAmount(exp);
+        // Day total is the net: income adds, spending subtracts.
+        section.total += (exp as any).type === 'income' ? amt : -amt;
+      }
+      return sections;
+    }
+
     const grouped: Record<string, Expense[]> = {};
     const uncategorized: Expense[] = [];
 
@@ -323,84 +346,69 @@ export default function ExpensesScreen({ navigation, route }: any) {
     }
 
     return sections;
-  }, [filteredExpenses]);
+  }, [filteredExpenses, sortMode]);
 
   const renderExpense = ({ item, index }: { item: Expense; index: number }) => {
     const amount = getDisplayAmount(item);
     const formattedAmount = amount.toFixed(2);
     const expenseType = (item as any).type || 'expense';
-    const isSelected = selectedIds.has(item.id);
 
     return (
       <AnimatedPressable
         onPress={() => {
-          if (selectionMode) {
-            toggleSelectExpense(item.id);
-          } else {
-            navigation.navigate('EditExpense', {
-              expenseId: item.id,
-              expense: item
-            });
-          }
+          navigation.navigate('EditExpense', {
+            expenseId: item.id,
+            expense: item
+          });
         }}
         scaleValue={0.98}
         style={styles.expenseItemWrapper}
       >
-        <BlurView
-          intensity={isDark ? 40 : 30}
-          tint={isDark ? 'dark' : 'light'}
+        <View
           style={[
             styles.expenseItem,
             {
-              backgroundColor: isDark ? GLASS.bgLight : 'rgba(255, 255, 255, 0.7)',
-            },
-            selectionMode && isSelected && {
-              borderColor: ACCENT,
-              borderWidth: 2,
-              backgroundColor: ACCENT + '15',
+              backgroundColor: colors.card,
+              borderColor: colors.border,
             },
           ]}
-          onTouchEnd={() => {
-            // Long press handling for selection mode
-          }}
         >
-          {selectionMode && (
-            <View style={[
-              styles.checkbox,
-              { borderColor: isSelected ? ACCENT : colors.border },
-              isSelected && { backgroundColor: ACCENT }
-            ]}>
-              {isSelected && <Text style={styles.checkmark}>{'\u2713'}</Text>}
-            </View>
-          )}
+          <View style={[styles.expenseEmoji, { backgroundColor: expenseType === 'income' ? colors.tintCool : colors.tintWarm }]}>
+            {expenseType === 'income' ? (
+              <Wallet size={22} color={colors.tintCoolText} weight="duotone" />
+            ) : (
+              <CategoryIcon name={item.category?.name} size={22} color={colors.tintWarmText} />
+            )}
+          </View>
           <View style={styles.expenseContent}>
-            <Text style={[styles.expenseDescription, { color: colors.text }]}>
+            <Text style={[styles.expenseDescription, { color: colors.text }]} numberOfLines={1}>
               {item.description}
             </Text>
-            <Text style={[styles.expenseMerchant, { color: colors.textSecondary }]}>
-              {item.merchant || 'No merchant'}
-            </Text>
-            <Text style={[styles.expenseDate, { color: colors.textSecondary }]}>
-              {new Date(item.date).toLocaleDateString()}
+            <Text style={[styles.expenseMerchant, { color: colors.textTertiary }]} numberOfLines={1}>
+              {(item.merchant || item.category?.name || 'Uncategorized') + ' · ' +
+                new Date(item.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
             </Text>
           </View>
           <View style={styles.expenseAmount}>
             <Text style={[
               styles.amountText,
-              { color: expenseType === 'income' ? colors.success : colors.error }
+              { color: expenseType === 'income' ? colors.success : colors.text }
             ]}>
-              {expenseType === 'income' ? '+' : '-'}{formattedAmount}
+              {expenseType === 'income' ? '+' : '−'}{formattedAmount}
             </Text>
-            <Text style={[styles.currencyText, { color: colors.textSecondary }]}>
+            <Text style={[styles.currencyText, { color: colors.textTertiary }]}>
               {item.convertedCurrency === userCurrency ? userCurrency : item.currency}
             </Text>
           </View>
-        </BlurView>
+        </View>
       </AnimatedPressable>
     );
   };
 
   const renderSectionHeader = ({ section }: { section: ExpenseSection }) => {
+    // Chronological modes use a single unnamed section — no header to draw.
+    if (!section.title) return null;
+
     const formattedTotal = section.total.toFixed(2);
     const currency = userCurrency;
 
@@ -408,12 +416,12 @@ export default function ExpensesScreen({ navigation, route }: any) {
       <View style={[styles.sectionHeader, { backgroundColor: 'transparent' }]}>
         <View style={styles.sectionHeaderContent}>
           <View style={styles.sectionTitleRow}>
-            <View style={[styles.sectionDot, { backgroundColor: ACCENT }]} />
+            <View style={[styles.sectionDot, { backgroundColor: colors.primary }]} />
             <Text style={[styles.sectionTitle, { color: colors.text }]}>
               {section.title}
             </Text>
           </View>
-          <Text style={[styles.sectionTotal, { color: ACCENT }]}>
+          <Text style={[styles.sectionTotal, { color: colors.primary }]}>
             {formattedTotal} {currency}
           </Text>
         </View>
@@ -426,127 +434,46 @@ export default function ExpensesScreen({ navigation, route }: any) {
 
   const renderSectionFooter = () => <View style={styles.sectionFooter} />;
 
-  // ─── Glass Header Bar ─────────────────────────────────────────────
+  // ─── Header Bar ─────────────────────────────────────────────
   const renderHeader = (showAdd: boolean = true) => (
-    <View style={styles.headerWrapper}>
-      <LinearGradient
-        colors={isDark
-          ? ['#0D0221', '#1A0533', ACCENT + '80'] as const
-          : ['#1A0533', '#2D1052', ACCENT_LIGHT + '90'] as const
-        }
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.headerGradient}
-      >
-        <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
-          <View style={styles.headerContent}>
-            <Text style={styles.headerTitle}>Transactions</Text>
-          </View>
-          <View style={styles.headerButtonsRow}>
-            {!selectionMode ? (
-              <>
-                <AnimatedPressable
-                  onPress={() => setShowFilters(true)}
-                  scaleValue={0.93}
-                  style={{ flex: 1 }}
-                >
-                  <BlurView
-                    intensity={40}
-                    tint="light"
-                    style={[
-                      styles.glassHeaderButton,
-                      hasActiveFilters && { borderColor: ACCENT, backgroundColor: ACCENT + '40' },
-                    ]}
-                  >
-                    <Text style={styles.glassHeaderButtonText}>
-                      {'\uD83D\uDD0D'} Filters
-                    </Text>
-                  </BlurView>
-                </AnimatedPressable>
-                {/* TODO: REMOVE THIS BUTTON BEFORE PRODUCTION - Testing purposes only! */}
-                <AnimatedPressable
-                  onPress={toggleSelectionMode}
-                  scaleValue={0.93}
-                >
-                  <BlurView
-                    intensity={40}
-                    tint="light"
-                    style={styles.glassHeaderButton}
-                  >
-                    <Text style={styles.glassHeaderButtonIcon}>{'\uD83D\uDDD1\uFE0F'}</Text>
-                  </BlurView>
-                </AnimatedPressable>
-                {showAdd && (
-                  <AnimatedPressable
-                    onPress={() => navigation.navigate('AddExpense')}
-                    scaleValue={0.93}
-                  >
-                    <LinearGradient
-                      colors={[ACCENT, ACCENT_LIGHT]}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 0 }}
-                      style={styles.addButtonGradient}
-                    >
-                      <Text style={styles.addButtonText}>+ Add</Text>
-                    </LinearGradient>
-                  </AnimatedPressable>
-                )}
-              </>
-            ) : (
-              <>
-                <AnimatedPressable
-                  onPress={toggleSelectionMode}
-                  scaleValue={0.93}
-                >
-                  <BlurView
-                    intensity={40}
-                    tint="light"
-                    style={styles.glassHeaderButton}
-                  >
-                    <Text style={styles.glassHeaderButtonText}>Cancel</Text>
-                  </BlurView>
-                </AnimatedPressable>
-                <AnimatedPressable
-                  onPress={selectAllExpenses}
-                  scaleValue={0.93}
-                  style={{ flex: 1 }}
-                >
-                  <BlurView
-                    intensity={40}
-                    tint="light"
-                    style={[styles.glassHeaderButton, { borderColor: ACCENT + '60' }]}
-                  >
-                    <Text style={[styles.glassHeaderButtonText, { color: '#FFFFFF' }]}>
-                      {selectedIds.size === filteredExpenses.length ? 'Deselect' : 'Select All'}
-                    </Text>
-                  </BlurView>
-                </AnimatedPressable>
-                <AnimatedPressable
-                  onPress={deleteSelectedTransactions}
-                  disabled={selectedIds.size === 0}
-                >
-                  <LinearGradient
-                    colors={selectedIds.size > 0
-                      ? [colors.error, '#FF6B6B'] as const
-                      : ['#555', '#444'] as const
-                    }
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={[
-                      styles.addButtonGradient,
-                      selectedIds.size === 0 && { opacity: 0.4 },
-                    ]}
-                  >
-                    <Text style={styles.addButtonText}>
-                      Delete ({selectedIds.size})
-                    </Text>
-                  </LinearGradient>
-                </AnimatedPressable>
-              </>
-            )}
-          </View>
-        </SafeAreaView>
-      </LinearGradient>
+    <View style={[styles.headerWrapper, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+      <SafeAreaView edges={['top']} style={styles.headerSafeArea}>
+        <View style={styles.headerButtonsRow}>
+          <AnimatedPressable
+            onPress={() => setShowFilters(true)}
+            scaleValue={0.93}
+            style={{ flex: 1 }}
+          >
+            <View
+              style={[
+                styles.headerButton,
+                {
+                  backgroundColor: colors.inputBg,
+                  borderColor: colors.border,
+                },
+                hasActiveFilters && { borderColor: colors.primary, backgroundColor: colors.primary + '15' },
+              ]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Funnel size={16} color={hasActiveFilters ? colors.primary : colors.text} weight="duotone" />
+                <Text style={[styles.headerButtonText, { color: hasActiveFilters ? colors.primary : colors.text }]}>
+                  Filters
+                </Text>
+              </View>
+            </View>
+          </AnimatedPressable>
+          {showAdd && (
+            <AnimatedPressable
+              onPress={() => navigation.navigate('AddExpense')}
+              scaleValue={0.93}
+            >
+              <View style={[styles.addButton, { backgroundColor: colors.primary }]}>
+                <Text style={styles.addButtonText}>+ Add</Text>
+              </View>
+            </AnimatedPressable>
+          )}
+        </View>
+      </SafeAreaView>
     </View>
   );
 
@@ -557,11 +484,10 @@ export default function ExpensesScreen({ navigation, route }: any) {
         {renderHeader(false)}
         <View style={styles.center}>
           <GlassCard
-            intensity={GLASS.blurIntensity}
             tint={isDark ? 'dark' : 'light'}
             style={styles.loadingCard}
           >
-            <ActivityIndicator size="large" color={ACCENT} />
+            <ActivityIndicator size="large" color={colors.primary} />
             <Text style={[styles.loadingText, { color: colors.textSecondary }]}>
               Loading transactions...
             </Text>
@@ -579,34 +505,30 @@ export default function ExpensesScreen({ navigation, route }: any) {
         <View style={styles.emptyContainer}>
           <Animated.View entering={FadeInDown.duration(500)}>
             <GlassCard
-              intensity={GLASS.blurIntensity}
               tint={isDark ? 'dark' : 'light'}
-              style={[styles.emptyCard, { backgroundColor: GLASS.bgLight }]}
+              style={styles.emptyCard}
             >
-              <Text style={styles.emptyIcon}>{'\uD83D\uDCDD'}</Text>
+              <View style={styles.emptyIcon}>
+                <Notepad size={44} color={colors.textTertiary} weight="duotone" />
+              </View>
               <Text style={[styles.emptyText, { color: colors.text }]}>
-                No transactions yet
+                No transactions found
               </Text>
               <Text style={[styles.emptySubtext, { color: colors.textSecondary }]}>
                 {hasActiveFilters
-                  ? 'Try adjusting your filters or add a new transaction'
-                  : 'Add your first transaction to get started tracking your finances'}
+                  ? 'No matches for your current filters. Try broadening your search.'
+                  : 'Tap the button below to record your first income or expense'}
               </Text>
               {!hasActiveFilters && (
                 <AnimatedPressable
                   onPress={() => navigation.navigate('AddExpense')}
                   scaleValue={0.97}
                 >
-                  <LinearGradient
-                    colors={[ACCENT, ACCENT_LIGHT]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.emptyActionButton}
-                  >
+                  <View style={[styles.emptyActionButton, { backgroundColor: colors.primary }]}>
                     <Text style={styles.emptyActionButtonText}>
-                      Add Your First Transaction
+                      Record a Transaction
                     </Text>
-                  </LinearGradient>
+                  </View>
                 </AnimatedPressable>
               )}
             </GlassCard>
@@ -621,51 +543,69 @@ export default function ExpensesScreen({ navigation, route }: any) {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {renderHeader()}
 
-      {/* Search Bar - Hide in selection mode */}
-      {!selectionMode && (
-        <View style={styles.searchWrapper}>
-          <BlurView
-            intensity={isDark ? 40 : 25}
-            tint={isDark ? 'dark' : 'light'}
-            style={[
-              styles.searchContainer,
-              { backgroundColor: isDark ? GLASS.bgLight : 'rgba(255,255,255,0.6)' },
-            ]}
-          >
-            <Text style={styles.searchIcon}>{'\uD83D\uDD0E'}</Text>
-            <TextInput
-              style={[styles.searchInput, { color: colors.text }]}
-              placeholder="Search transactions..."
-              placeholderTextColor={colors.textSecondary}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-            {hasActiveFilters && (
-              <AnimatedPressable onPress={clearFilters} scaleValue={0.9}>
-                <View style={[styles.clearBadge, { backgroundColor: ACCENT + '20' }]}>
-                  <Text style={[styles.clearBadgeText, { color: ACCENT }]}>Clear</Text>
-                </View>
-              </AnimatedPressable>
-            )}
-          </BlurView>
+      {/* Search Bar */}
+      <View style={styles.searchWrapper}>
+        <View
+          style={[
+            styles.searchContainer,
+            {
+              backgroundColor: colors.card,
+              borderColor: colors.border,
+            },
+          ]}
+        >
+          <View style={{ marginRight: 8 }}>
+            <MagnifyingGlass size={18} color={colors.textTertiary} weight="duotone" />
+          </View>
+          <TextInput
+            style={[styles.searchInput, { color: colors.text }]}
+            placeholder="Search transactions..."
+            placeholderTextColor={colors.textSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          {hasActiveFilters && (
+            <AnimatedPressable onPress={clearFilters} scaleValue={0.9}>
+              <View style={[styles.clearBadge, { backgroundColor: colors.primary + '15' }]}>
+                <Text style={[styles.clearBadgeText, { color: colors.primary }]}>Clear</Text>
+              </View>
+            </AnimatedPressable>
+          )}
         </View>
-      )}
+      </View>
 
-      {/* Selection Mode Info Bar */}
-      {selectionMode && (
-        <Animated.View entering={FadeInDown.duration(300)}>
-          <BlurView
-            intensity={40}
-            tint={isDark ? 'dark' : 'light'}
-            style={[styles.selectionInfoBar, { backgroundColor: ACCENT + '15' }]}
-          >
-            <View style={[styles.selectionDot, { backgroundColor: ACCENT }]} />
-            <Text style={[styles.selectionInfoText, { color: ACCENT }]}>
-              {selectedIds.size} of {filteredExpenses.length} selected
-            </Text>
-          </BlurView>
-        </Animated.View>
-      )}
+      {/* Sort: Latest / Earliest / By category */}
+      <View style={styles.sortRow}>
+        {([
+          { key: 'latest', label: 'Latest', Icon: SortDescending },
+          { key: 'earliest', label: 'Earliest', Icon: SortAscending },
+          { key: 'category', label: 'Category', Icon: SquaresFour },
+        ] as const).map(({ key, label, Icon }) => {
+          const active = sortMode === key;
+          return (
+            <AnimatedPressable
+              key={key}
+              onPress={() => setSortMode(key)}
+              scaleValue={0.96}
+              style={styles.sortChipWrapper}
+            >
+              <View
+                style={[
+                  styles.sortChip,
+                  active
+                    ? { backgroundColor: colors.primary, borderColor: colors.primary }
+                    : { backgroundColor: colors.inputBg, borderColor: colors.borderStrong },
+                ]}
+              >
+                <Icon size={14} color={active ? '#fefefe' : colors.textSecondary} weight={active ? 'bold' : 'duotone'} />
+                <Text style={[styles.sortChipText, { color: active ? '#fefefe' : colors.text }]}>
+                  {label}
+                </Text>
+              </View>
+            </AnimatedPressable>
+          );
+        })}
+      </View>
 
       <SectionList
         sections={groupedExpenses}
@@ -676,6 +616,17 @@ export default function ExpensesScreen({ navigation, route }: any) {
         contentContainerStyle={styles.list}
         stickySectionHeadersEnabled={false}
         showsVerticalScrollIndicator={false}
+        onEndReached={loadMore}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={
+          loadingMore ? (
+            <ActivityIndicator
+              size="small"
+              color={colors.primary}
+              style={{ marginVertical: 16 }}
+            />
+          ) : null
+        }
       />
 
       {/* ─── Filters Modal ───────────────────────────────────────────── */}
@@ -689,16 +640,17 @@ export default function ExpensesScreen({ navigation, route }: any) {
           style={styles.modalOverlay}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <BlurView
-            intensity={isDark ? 80 : 50}
-            tint={isDark ? 'dark' : 'light'}
+          <View
             style={[
               styles.modalContent,
-              { backgroundColor: isDark ? 'rgba(20,10,40,0.85)' : 'rgba(255,255,255,0.85)' },
+              {
+                backgroundColor: colors.card,
+                borderColor: colors.border,
+              },
             ]}
           >
             {/* Modal Header */}
-            <View style={[styles.modalHeader, { borderBottomColor: GLASS.borderColor }]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
               <View>
                 <Text style={[styles.modalTitle, { color: colors.text }]}>Filters</Text>
                 <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
@@ -709,12 +661,9 @@ export default function ExpensesScreen({ navigation, route }: any) {
                 onPress={() => setShowFilters(false)}
                 scaleValue={0.9}
               >
-                <LinearGradient
-                  colors={[ACCENT, ACCENT_LIGHT]}
-                  style={styles.modalDoneButton}
-                >
+                <View style={[styles.modalDoneButton, { backgroundColor: colors.primary }]}>
                   <Text style={styles.modalDoneText}>Done</Text>
-                </LinearGradient>
+                </View>
               </AnimatedPressable>
             </View>
 
@@ -727,14 +676,15 @@ export default function ExpensesScreen({ navigation, route }: any) {
                     onPress={() => setFilters({ ...filters, categoryId: '' })}
                     scaleValue={0.95}
                   >
-                    <BlurView
-                      intensity={30}
-                      tint={isDark ? 'dark' : 'light'}
+                    <View
                       style={[
                         styles.filterChip,
                         !filters.categoryId
-                          ? { backgroundColor: ACCENT, borderColor: ACCENT }
-                          : { backgroundColor: GLASS.bgLight, borderColor: GLASS.borderColor },
+                          ? { backgroundColor: colors.primary, borderColor: colors.primary }
+                          : {
+                              backgroundColor: colors.inputBg,
+                              borderColor: colors.border,
+                            },
                       ]}
                     >
                       <Text style={[
@@ -743,7 +693,7 @@ export default function ExpensesScreen({ navigation, route }: any) {
                       ]}>
                         All
                       </Text>
-                    </BlurView>
+                    </View>
                   </AnimatedPressable>
                   {categories.map(cat => (
                     <AnimatedPressable
@@ -751,14 +701,15 @@ export default function ExpensesScreen({ navigation, route }: any) {
                       onPress={() => setFilters({ ...filters, categoryId: filters.categoryId === cat.id ? '' : cat.id })}
                       scaleValue={0.95}
                     >
-                      <BlurView
-                        intensity={30}
-                        tint={isDark ? 'dark' : 'light'}
+                      <View
                         style={[
                           styles.filterChip,
                           filters.categoryId === cat.id
-                            ? { backgroundColor: ACCENT, borderColor: ACCENT }
-                            : { backgroundColor: GLASS.bgLight, borderColor: GLASS.borderColor },
+                            ? { backgroundColor: colors.primary, borderColor: colors.primary }
+                            : {
+                                backgroundColor: colors.inputBg,
+                                borderColor: colors.border,
+                              },
                         ]}
                       >
                         <Text style={[
@@ -767,7 +718,7 @@ export default function ExpensesScreen({ navigation, route }: any) {
                         ]}>
                           {cat.name}
                         </Text>
-                      </BlurView>
+                      </View>
                     </AnimatedPressable>
                   ))}
                 </ScrollView>
@@ -788,14 +739,15 @@ export default function ExpensesScreen({ navigation, route }: any) {
                       scaleValue={0.95}
                       style={{ flex: 1 }}
                     >
-                      <BlurView
-                        intensity={30}
-                        tint={isDark ? 'dark' : 'light'}
+                      <View
                         style={[
                           styles.typeButton,
                           filters.type === type.value
-                            ? { backgroundColor: ACCENT, borderColor: ACCENT }
-                            : { backgroundColor: GLASS.bgLight, borderColor: GLASS.borderColor },
+                            ? { backgroundColor: colors.primary, borderColor: colors.primary }
+                            : {
+                                backgroundColor: colors.inputBg,
+                                borderColor: colors.border,
+                              },
                         ]}
                       >
                         <Text style={[
@@ -804,7 +756,7 @@ export default function ExpensesScreen({ navigation, route }: any) {
                         ]}>
                           {type.label}
                         </Text>
-                      </BlurView>
+                      </View>
                     </AnimatedPressable>
                   ))}
                 </View>
@@ -815,15 +767,24 @@ export default function ExpensesScreen({ navigation, route }: any) {
                 onPress={() => setShowAdvancedFilters(!showAdvancedFilters)}
                 scaleValue={0.98}
               >
-                <BlurView
-                  intensity={30}
-                  tint={isDark ? 'dark' : 'light'}
-                  style={[styles.advancedToggle, { borderColor: GLASS.borderColor, backgroundColor: GLASS.bgLight }]}
+                <View
+                  style={[
+                    styles.advancedToggle,
+                    {
+                      backgroundColor: colors.inputBg,
+                      borderColor: colors.border,
+                    },
+                  ]}
                 >
-                  <Text style={[styles.advancedToggleText, { color: colors.text }]}>
-                    {showAdvancedFilters ? '\u25BC' : '\u25B6'} Advanced Filters
-                  </Text>
-                </BlurView>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    {showAdvancedFilters ? (
+                      <CaretDown size={14} color={colors.text} weight="bold" />
+                    ) : (
+                      <CaretRight size={14} color={colors.text} weight="bold" />
+                    )}
+                    <Text style={[styles.advancedToggleText, { color: colors.text }]}>Advanced Filters</Text>
+                  </View>
+                </View>
               </AnimatedPressable>
 
               {showAdvancedFilters && (
@@ -835,9 +796,9 @@ export default function ExpensesScreen({ navigation, route }: any) {
                       style={[
                         styles.filterInput,
                         {
-                          backgroundColor: isDark ? GLASS.bgLight : 'rgba(255,255,255,0.5)',
+                          backgroundColor: colors.inputBg,
                           color: colors.text,
-                          borderColor: GLASS.borderColor,
+                          borderColor: colors.border,
                         },
                       ]}
                       placeholder="YYYY-MM-DD"
@@ -853,9 +814,9 @@ export default function ExpensesScreen({ navigation, route }: any) {
                       style={[
                         styles.filterInput,
                         {
-                          backgroundColor: isDark ? GLASS.bgLight : 'rgba(255,255,255,0.5)',
+                          backgroundColor: colors.inputBg,
                           color: colors.text,
-                          borderColor: GLASS.borderColor,
+                          borderColor: colors.border,
                         },
                       ]}
                       placeholder="YYYY-MM-DD"
@@ -872,9 +833,9 @@ export default function ExpensesScreen({ navigation, route }: any) {
                       style={[
                         styles.filterInput,
                         {
-                          backgroundColor: isDark ? GLASS.bgLight : 'rgba(255,255,255,0.5)',
+                          backgroundColor: colors.inputBg,
                           color: colors.text,
-                          borderColor: GLASS.borderColor,
+                          borderColor: colors.border,
                         },
                       ]}
                       placeholder="0.00"
@@ -891,9 +852,9 @@ export default function ExpensesScreen({ navigation, route }: any) {
                       style={[
                         styles.filterInput,
                         {
-                          backgroundColor: isDark ? GLASS.bgLight : 'rgba(255,255,255,0.5)',
+                          backgroundColor: colors.inputBg,
                           color: colors.text,
-                          borderColor: GLASS.borderColor,
+                          borderColor: colors.border,
                         },
                       ]}
                       placeholder="0.00"
@@ -911,19 +872,14 @@ export default function ExpensesScreen({ navigation, route }: any) {
                 onPress={clearFilters}
                 scaleValue={0.97}
               >
-                <LinearGradient
-                  colors={[colors.error, '#FF6B6B']}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={styles.clearFiltersButton}
-                >
-                  <Text style={styles.clearFiltersButtonText}>Clear All Filters</Text>
-                </LinearGradient>
+                <View style={[styles.clearFiltersButton, { backgroundColor: colors.error }]}>
+                  <Text style={styles.clearFiltersButtonText}>Reset Filters</Text>
+                </View>
               </AnimatedPressable>
 
               <View style={{ height: 40 }} />
             </ScrollView>
-          </BlurView>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
     </View>
@@ -943,22 +899,10 @@ const styles = StyleSheet.create({
 
   // ─── Header ────────────────────────────────────────────────────────
   headerWrapper: {
-    overflow: 'hidden',
-  },
-  headerGradient: {
-    paddingBottom: 20,
+    borderBottomWidth: 0.5,
+    paddingBottom: 16,
   },
   headerSafeArea: {},
-  headerContent: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: -0.3,
-  },
   headerButtonsRow: {
     flexDirection: 'row',
     gap: 8,
@@ -966,29 +910,23 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     alignItems: 'center',
   },
-  glassHeaderButton: {
+  headerButton: {
     paddingHorizontal: 14,
     paddingVertical: 10,
-    minHeight: 40,
+    minHeight: 44,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-    overflow: 'hidden',
+    borderWidth: 0.5,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  glassHeaderButtonText: {
+  headerButtonText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#FFFFFF',
   },
-  glassHeaderButtonIcon: {
-    fontSize: 16,
-  },
-  addButtonGradient: {
+  addButton: {
     paddingHorizontal: 18,
     paddingVertical: 10,
-    minHeight: 40,
+    minHeight: 44,
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1005,15 +943,45 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 4,
   },
+  sortRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 2,
+  },
+  sortChipWrapper: {
+    flex: 1,
+  },
+  sortChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 0.5,
+  },
+  sortChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: GLASS.borderRadius,
-    borderWidth: 1,
-    borderColor: GLASS.borderColor,
-    overflow: 'hidden',
+    borderRadius: BENTO_RADIUS,
+    borderWidth: 0.5,
     paddingHorizontal: 14,
     gap: 10,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+      },
+      android: { elevation: 1 },
+    }),
   },
   searchIcon: {
     fontSize: 16,
@@ -1032,29 +1000,6 @@ const styles = StyleSheet.create({
   clearBadgeText: {
     fontSize: 12,
     fontWeight: '700',
-  },
-
-  // ─── Selection Info ────────────────────────────────────────────────
-  selectionInfoBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 12,
-    marginHorizontal: 16,
-    marginTop: 8,
-    borderRadius: 12,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: GLASS.borderColor,
-    gap: 8,
-  },
-  selectionDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  selectionInfoText: {
-    fontSize: 14,
-    fontWeight: '600',
   },
 
   // ─── List ──────────────────────────────────────────────────────────
@@ -1094,6 +1039,7 @@ const styles = StyleSheet.create({
   sectionTotal: {
     fontSize: 15,
     fontWeight: '700',
+    fontVariant: ['tabular-nums'],
   },
   sectionCount: {
     fontSize: 12,
@@ -1107,31 +1053,37 @@ const styles = StyleSheet.create({
 
   // ─── Expense Items ─────────────────────────────────────────────────
   expenseItemWrapper: {
-    marginBottom: 10,
+    marginBottom: 6,
   },
   expenseItem: {
-    padding: 16,
-    borderRadius: GLASS.borderRadius,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    minHeight: 64,
+    borderRadius: BENTO_RADIUS,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: GLASS.borderColor,
-    overflow: 'hidden',
+    borderWidth: 0.5,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.04,
+        shadowRadius: 4,
+      },
+      android: { elevation: 1 },
+    }),
   },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    marginRight: 12,
-    justifyContent: 'center',
+  expenseEmoji: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
   },
-  checkmark: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
+  expenseEmojiText: {
+    fontSize: 18,
   },
   expenseContent: {
     flex: 1,
@@ -1160,6 +1112,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '800',
     letterSpacing: -0.3,
+    fontVariant: ['tabular-nums'],
   },
   currencyText: {
     fontSize: 11,
@@ -1225,16 +1178,14 @@ const styles = StyleSheet.create({
   // ─── Modal ─────────────────────────────────────────────────────────
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'flex-end',
   },
   modalContent: {
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: '80%',
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: GLASS.borderColor,
+    borderWidth: 0.5,
     borderBottomWidth: 0,
   },
   modalHeader: {
@@ -1242,11 +1193,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 20,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0.5,
   },
   modalTitle: {
     fontSize: 22,
-    fontWeight: '800',
+    fontWeight: '700',
     letterSpacing: -0.3,
   },
   modalSubtitle: {
@@ -1273,20 +1224,19 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   filterLabel: {
-    fontSize: 14,
-    fontWeight: '700',
+    fontSize: 13,
+    fontWeight: '600',
     marginBottom: 12,
     textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    letterSpacing: 0.3,
   },
   filterChip: {
     paddingHorizontal: 18,
     paddingVertical: 10,
     borderRadius: 20,
     marginRight: 8,
-    borderWidth: 1,
-    overflow: 'hidden',
-    minHeight: 40,
+    borderWidth: 0.5,
+    minHeight: 44,
     justifyContent: 'center',
   },
   filterChipText: {
@@ -1301,10 +1251,9 @@ const styles = StyleSheet.create({
     padding: 14,
     minHeight: 44,
     borderRadius: 12,
-    borderWidth: 1,
+    borderWidth: 0.5,
     alignItems: 'center',
     justifyContent: 'center',
-    overflow: 'hidden',
   },
   typeButtonText: {
     fontSize: 13,
@@ -1313,9 +1262,8 @@ const styles = StyleSheet.create({
   advancedToggle: {
     padding: 16,
     borderRadius: 12,
-    borderWidth: 1,
+    borderWidth: 0.5,
     marginBottom: 16,
-    overflow: 'hidden',
   },
   advancedToggleText: {
     fontSize: 14,
@@ -1324,7 +1272,7 @@ const styles = StyleSheet.create({
   filterInput: {
     padding: 14,
     borderRadius: 12,
-    borderWidth: 1,
+    borderWidth: 0.5,
     fontSize: 15,
     fontWeight: '500',
     marginTop: 4,

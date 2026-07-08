@@ -1,13 +1,16 @@
 import { useEffect, useState } from 'react';
-import { api } from '../services/api';
+import { useNavigate } from 'react-router-dom';
+import { api, ApiError } from '../services/api';
 
 export default function Users() {
+  const navigate = useNavigate();
   const [users, setUsers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     loadUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadUsers = async () => {
@@ -16,8 +19,13 @@ export default function Users() {
       const data = await api.getUsers();
       setUsers(data.users || []);
     } catch (err: any) {
-      setError(err.message || 'Failed to load users');
-      console.error('Error loading users:', err);
+      if (err instanceof ApiError && err.status === 401) {
+        navigate('/login', { replace: true });
+        return;
+      }
+      setError(err instanceof ApiError && err.status === 403
+        ? 'Your account does not have admin access.'
+        : err.message || 'Failed to load users');
     } finally {
       setLoading(false);
     }

@@ -1,36 +1,24 @@
 import React, { useState, useRef } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   Alert,
   ActivityIndicator,
   Animated,
   ScrollView,
 } from 'react-native';
+import { Text } from '../components/AppText';
 // SafeAreaView removed: screen is inside a stack navigator with a visible header
-import { LinearGradient } from 'expo-linear-gradient';
 import ReAnimated, { FadeInDown } from 'react-native-reanimated';
+import { Camera, Image as PhImage } from 'phosphor-react-native';
 import { useTheme } from '../context/ThemeContext';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { api } from '../services/api';
-import GlassCard from '../components/GlassCard';
 import AnimatedPressable from '../components/AnimatedPressable';
 
 // Design system tokens
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  borderColorStrong: 'rgba(255, 255, 255, 0.3)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  bgMedium: 'rgba(255, 255, 255, 0.12)',
-  bgDark: 'rgba(0, 0, 0, 0.2)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
-
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
+const BENTO_RADIUS = 18;
 
 export default function ReceiptScanScreen({ navigation }: any) {
   const { colors, isDark } = useTheme();
@@ -38,6 +26,10 @@ export default function ReceiptScanScreen({ navigation }: any) {
   const [status, setStatus] = useState('');
   const [progress, setProgress] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
+
+  const cardBg = colors.card;
+  const inputBg = colors.inputBg;
+  const borderColor = colors.border;
 
   const pickImage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -140,12 +132,7 @@ export default function ReceiptScanScreen({ navigation }: any) {
   };
 
   return (
-    <LinearGradient
-      colors={['#0D0221', '#1A0533', ACCENT + '40']}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.gradientBackground}
-    >
+    <View style={[styles.background, { backgroundColor: colors.background }]}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={styles.scrollContent}
@@ -157,8 +144,8 @@ export default function ReceiptScanScreen({ navigation }: any) {
           entering={FadeInDown.duration(500).delay(0)}
           style={styles.titleArea}
         >
-          <Text style={styles.title}>Scan Receipt</Text>
-          <Text style={styles.subtitle}>
+          <Text style={[styles.title, { color: colors.text }]}>Scan Receipt</Text>
+          <Text style={[styles.subtitle, { color: colors.text, opacity: 0.5 }]}>
             Take a photo or select from gallery
           </Text>
         </ReAnimated.View>
@@ -172,12 +159,15 @@ export default function ReceiptScanScreen({ navigation }: any) {
               disabled={processing}
               scaleValue={0.97}
             >
-              <GlassCard
-                intensity={GLASS.blurIntensity}
-                tint={isDark ? 'dark' : 'light'}
+              <View
                 style={[
                   styles.actionCard,
-                  { backgroundColor: GLASS.bgLight },
+                  {
+                    backgroundColor: cardBg,
+                    borderColor: borderColor,
+                    borderWidth: 0.5,
+                    borderRadius: BENTO_RADIUS,
+                  },
                   processing && styles.actionCardDisabled,
                 ]}
               >
@@ -185,10 +175,10 @@ export default function ReceiptScanScreen({ navigation }: any) {
                   <View
                     style={[
                       styles.iconContainer,
-                      { backgroundColor: 'rgba(106, 13, 173, 0.15)' },
+                      { backgroundColor: isDark ? `${colors.primary}26` : `${colors.primary}14` },
                     ]}
                   >
-                    <Text style={styles.iconEmoji}>{'\uD83D\uDCF7'}</Text>
+                    <Camera size={28} color={colors.primary} weight="duotone" />
                   </View>
                   <View style={styles.actionCardTextBlock}>
                     <Text style={[styles.actionCardTitle, { color: colors.text }]}>Take Photo</Text>
@@ -197,7 +187,7 @@ export default function ReceiptScanScreen({ navigation }: any) {
                     </Text>
                   </View>
                 </View>
-              </GlassCard>
+              </View>
             </AnimatedPressable>
           </ReAnimated.View>
 
@@ -208,12 +198,15 @@ export default function ReceiptScanScreen({ navigation }: any) {
               disabled={processing}
               scaleValue={0.97}
             >
-              <GlassCard
-                intensity={GLASS.blurIntensity}
-                tint={isDark ? 'dark' : 'light'}
+              <View
                 style={[
                   styles.actionCard,
-                  { backgroundColor: GLASS.bgLight },
+                  {
+                    backgroundColor: cardBg,
+                    borderColor: borderColor,
+                    borderWidth: 0.5,
+                    borderRadius: BENTO_RADIUS,
+                  },
                   processing && styles.actionCardDisabled,
                 ]}
               >
@@ -221,12 +214,10 @@ export default function ReceiptScanScreen({ navigation }: any) {
                   <View
                     style={[
                       styles.iconContainer,
-                      { backgroundColor: 'rgba(0, 122, 255, 0.15)' },
+                      { backgroundColor: isDark ? `${colors.primary}26` : `${colors.primary}14` },
                     ]}
                   >
-                    <Text style={styles.iconEmoji}>
-                      {'\uD83D\uDDBC\uFE0F'}
-                    </Text>
+                    <PhImage size={28} color={colors.primary} weight="duotone" />
                   </View>
                   <View style={styles.actionCardTextBlock}>
                     <Text style={[styles.actionCardTitle, { color: colors.text }]}>
@@ -237,7 +228,7 @@ export default function ReceiptScanScreen({ navigation }: any) {
                     </Text>
                   </View>
                 </View>
-              </GlassCard>
+              </View>
             </AnimatedPressable>
           </ReAnimated.View>
         </View>
@@ -245,36 +236,33 @@ export default function ReceiptScanScreen({ navigation }: any) {
         {/* Processing / Progress Section */}
         {processing && (
           <ReAnimated.View entering={FadeInDown.duration(400).delay(100)}>
-            <GlassCard
-              intensity={GLASS.blurIntensity}
-              tint={isDark ? 'dark' : 'light'}
+            <View
               style={[
                 styles.progressCard,
-                { backgroundColor: GLASS.bgMedium },
+                {
+                  backgroundColor: cardBg,
+                  borderColor: borderColor,
+                  borderWidth: 0.5,
+                  borderRadius: BENTO_RADIUS,
+                },
               ]}
             >
-              <ActivityIndicator size="large" color={ACCENT_LIGHT} />
+              <ActivityIndicator size="large" color={colors.primary} />
 
               {/* Progress Bar */}
-              <View style={styles.progressBarContainer}>
+              <View style={[styles.progressBarContainer, { backgroundColor: inputBg }]}>
                 <Animated.View
                   style={[
                     styles.progressBarFill,
                     {
+                      backgroundColor: colors.primary,
                       width: progressAnim.interpolate({
                         inputRange: [0, 1],
                         outputRange: ['0%', '100%'],
                       }),
                     },
                   ]}
-                >
-                  <LinearGradient
-                    colors={[ACCENT, ACCENT_LIGHT]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.progressGradient}
-                  />
-                </Animated.View>
+                />
               </View>
 
               {/* Status Text */}
@@ -286,16 +274,16 @@ export default function ReceiptScanScreen({ navigation }: any) {
               <Text style={[styles.percentageText, { color: colors.text, opacity: 0.5 }]}>
                 {Math.round(progress)}%
               </Text>
-            </GlassCard>
+            </View>
           </ReAnimated.View>
         )}
       </ScrollView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  gradientBackground: {
+  background: {
     flex: 1,
   },
   container: {
@@ -308,7 +296,7 @@ const styles = StyleSheet.create({
     paddingVertical: 24,
   },
 
-  // ── Title ──────────────────────────────────────────────────────────
+  // -- Title ---------------------------------------------------------------
   titleArea: {
     alignItems: 'center',
     marginBottom: 40,
@@ -316,7 +304,6 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 28,
     fontWeight: '800',
-    color: '#FFFFFF',
     textAlign: 'center',
     letterSpacing: -0.3,
     marginBottom: 8,
@@ -324,11 +311,10 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 15,
     fontWeight: '500',
-    color: 'rgba(255, 255, 255, 0.6)',
     textAlign: 'center',
   },
 
-  // ── Action Cards ───────────────────────────────────────────────────
+  // -- Action Cards --------------------------------------------------------
   cardsContainer: {
     gap: 16,
   },
@@ -336,6 +322,7 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     paddingHorizontal: 20,
     minHeight: 72,
+    overflow: 'hidden',
   },
   actionCardDisabled: {
     opacity: 0.5,
@@ -369,28 +356,23 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
 
-  // ── Progress Card ──────────────────────────────────────────────────
+  // -- Progress Card -------------------------------------------------------
   progressCard: {
     marginTop: 24,
     alignItems: 'center',
     paddingVertical: 24,
     paddingHorizontal: 20,
+    overflow: 'hidden',
   },
   progressBarContainer: {
     width: '100%',
     height: 8,
     borderRadius: 4,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
     marginTop: 20,
     overflow: 'hidden',
   },
   progressBarFill: {
     height: '100%',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  progressGradient: {
-    flex: 1,
     borderRadius: 4,
   },
   statusText: {

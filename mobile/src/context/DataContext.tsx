@@ -35,15 +35,20 @@ export function DataProvider({ children }: { children: ReactNode }) {
   const [categories, setCategories] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
+  // Session expiry is a normal event (AuthContext signs the user out and shows
+  // Login) — logging it as console.error triggers a red-box in dev for nothing.
+  const isSessionExpiry = (error: any) =>
+    String(error?.message || '').toLowerCase().includes('session expired');
+
   const refreshExpenses = React.useCallback(async () => {
     if (!user) return;
-    
+
     setLoading(true);
     try {
       const data: any = await api.getExpenses({ limit: 100 });
       setExpenses((data?.expenses || []) as Expense[]);
     } catch (error) {
-      console.error('Error loading expenses:', error);
+      if (!isSessionExpiry(error)) console.warn('Error loading expenses:', error);
     } finally {
       setLoading(false);
     }
@@ -51,12 +56,12 @@ export function DataProvider({ children }: { children: ReactNode }) {
 
   const refreshCategories = React.useCallback(async () => {
     if (!user) return;
-    
+
     try {
       const cats = await api.getCategories();
       setCategories(Array.isArray(cats) ? cats : []);
     } catch (error) {
-      console.error('Error loading categories:', error);
+      if (!isSessionExpiry(error)) console.warn('Error loading categories:', error);
     }
   }, [user]);
 

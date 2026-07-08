@@ -15,6 +15,7 @@ import { GroupMember } from '../entities/group-member.entity';
 import { GroupExpenseSplit } from '../entities/group-expense-split.entity';
 import { GroupSettlement } from '../entities/group-settlement.entity';
 import { GroupInvite } from '../entities/group-invite.entity';
+import { GroupExpenseComment } from '../entities/group-expense-comment.entity';
 import { User } from '../entities/user.entity';
 import { SubscriptionsService } from '../subscriptions/subscriptions.service';
 import { CurrencyService } from '../currency/currency.service';
@@ -26,6 +27,7 @@ import {
   CreateSettlementDto,
   AddMembersDto,
   CreateInviteDto,
+  AddCommentDto,
 } from './groups.dto';
 import { randomUUID } from 'crypto';
 
@@ -44,6 +46,8 @@ export class GroupsService implements OnModuleInit {
     private settlementsRepository: Repository<GroupSettlement>,
     @InjectRepository(GroupInvite)
     private invitesRepository: Repository<GroupInvite>,
+    @InjectRepository(GroupExpenseComment)
+    private commentsRepository: Repository<GroupExpenseComment>,
     @InjectRepository(User)
     private usersRepository: Repository<User>,
     private subscriptionsService: SubscriptionsService,
@@ -364,6 +368,17 @@ export class GroupsService implements OnModuleInit {
         );
         break;
 
+      case SplitType.SHARES:
+        if (!dto.splits || dto.splits.length === 0) {
+          throw new BadRequestException('Splits required for SHARES split type');
+        }
+        const shareMap = new Map(dto.splits.map((s) => [s.userId, s.amount]));
+        splitAmounts = this.splitCalculationService.calculateSharesSplit(
+          dto.amount,
+          shareMap,
+        );
+        break;
+
       default:
         throw new BadRequestException('Invalid split type');
     }
@@ -568,7 +583,7 @@ export class GroupsService implements OnModuleInit {
     userId: string,
     groupId: string,
     dto: CreateInviteDto,
-  ): Promise<GroupInvite> {
+  ): Promise<GroupInvite & { token: string; deepLink: string; webLink?: string }> {
     await this.assertMembership(userId, groupId);
 
     const token = randomUUID();
@@ -577,13 +592,273 @@ export class GroupsService implements OnModuleInit {
 
     const invite = this.invitesRepository.create({
       groupId,
-      email: dto.email,
+      // Email is optional — the invite is usable as a shareable link/token.
+      email: dto.email ?? '',
       token,
       invitedBy: userId,
       expiresAt,
     });
 
-    return this.invitesRepository.save(invite) as Promise<GroupInvite>;
+    const saved = await this.invitesRepository.save(invite);
+
+    // No mailer exists: instead of silently storing a dead token, return
+    // shareable links the inviter can send via the OS share sheet. The deep link
+    // uses the mobile app's URL scheme; the optional web link needs
+    // APP_INVITE_BASE_URL configured (e.g. a landing page that redirects into the app).
+    const deepLink = `expensetracker://invite/${token}`;
+    const webBase = process.env.APP_INVITE_BASE_URL;
+    const webLink = webBase ? `${webBase.replace(/\/$/, '')}/invite/${token}` : undefined;
+
+    return { ...saved, token, deepLink, webLink };
+  }
+
+  // --- Comments ---
+
+  async addComment(
+    userId: string,
+    groupId: string,
+    expenseId: string,
+    dto: AddCommentDto,
+  ): Promise<GroupExpenseComment> {
+    await this.assertMembership(userId, groupId);
+
+    const expense = await this.expensesRepository.findOne({
+      where: { id: expenseId, groupId },
+    });
+    if (!expense) {
+      throw new NotFoundException('Expense not found');
+    }
+
+    const comment = this.commentsRepository.create({
+      groupExpenseId: expenseId,
+      userId,
+      text: dto.text.trim(),
+    });
+
+    const saved = await this.commentsRepository.save(comment) as GroupExpenseComment;
+
+    return this.commentsRepository.findOne({
+      where: { id: saved.id },
+      relations: ['user'],
+    }) as Promise<GroupExpenseComment>;
+  }
+
+  async getComments(
+    userId: string,
+    groupId: string,
+    expenseId: string,
+  ): Promise<GroupExpenseComment[]> {
+    await this.assertMembership(userId, groupId);
+
+    return this.commentsRepository.find({
+      where: { groupExpenseId: expenseId },
+      relations: ['user'],
+      order: { createdAt: 'ASC' },
+    });
+  }
+
+  async deleteComment(
+    userId: string,
+    groupId: string,
+    expenseId: string,
+    commentId: string,
+  ): Promise<void> {
+    await this.assertMembership(userId, groupId);
+
+    const comment = await this.commentsRepository.findOne({
+      where: { id: commentId, groupExpenseId: expenseId },
+    });
+
+    if (!comment) {
+      throw new NotFoundException('Comment not found');
+    }
+
+    if (comment.userId !== userId) {
+      await this.assertAdmin(userId, groupId);
+    }
+
+    await this.commentsRepository.remove(comment);
+  }
+
+  // --- Activity Feed ---
+
+  async getGroupActivity(userId: string, groupId: string): Promise<any[]> {
+    await this.assertMembership(userId, groupId);
+
+    const group = await this.groupsRepository.findOne({
+      where: { id: groupId },
+      relations: ['members', 'members.user'],
+    });
+    if (!group) throw new NotFoundException('Group not found');
+
+    const expenses = await this.expensesRepository.find({
+      where: { groupId },
+      relations: ['payer', 'splits', 'splits.user'],
+      order: { createdAt: 'DESC' },
+    });
+
+    const settlements = await this.settlementsRepository.find({
+      where: { groupId },
+      relations: ['fromUser', 'toUser'],
+      order: { createdAt: 'DESC' },
+    });
+
+    const activities: any[] = [];
+
+    for (const expense of expenses) {
+      activities.push({
+        type: 'expense',
+        id: expense.id,
+        description: expense.description,
+        amount: Number(expense.amount),
+        currency: expense.currency,
+        splitType: expense.splitType,
+        paidByName: expense.payer?.name || 'Unknown',
+        paidById: expense.paidBy,
+        timestamp: expense.createdAt,
+        date: expense.date,
+      });
+    }
+
+    for (const settlement of settlements) {
+      activities.push({
+        type: 'settlement',
+        id: settlement.id,
+        fromUserId: settlement.fromUserId,
+        fromUserName: settlement.fromUser?.name || 'Unknown',
+        toUserId: settlement.toUserId,
+        toUserName: settlement.toUser?.name || 'Unknown',
+        amount: Number(settlement.amount),
+        currency: settlement.currency,
+        note: settlement.note,
+        timestamp: settlement.createdAt,
+      });
+    }
+
+    for (const member of group.members) {
+      activities.push({
+        type: 'member_join',
+        id: member.id,
+        userId: member.userId,
+        userName: member.user?.name || 'Unknown',
+        role: member.role,
+        timestamp: member.joinedAt,
+      });
+    }
+
+    // Sort all activities by timestamp descending
+    activities.sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+    );
+
+    return activities;
+  }
+
+  // --- Analytics ---
+
+  async getGroupAnalytics(userId: string, groupId: string): Promise<any> {
+    await this.assertMembership(userId, groupId);
+
+    const group = await this.groupsRepository.findOne({
+      where: { id: groupId },
+      relations: ['members', 'members.user'],
+    });
+    if (!group) throw new NotFoundException('Group not found');
+
+    const expenses = await this.expensesRepository.find({
+      where: { groupId },
+      relations: ['splits'],
+      order: { date: 'ASC' },
+    });
+
+    const settlements = await this.settlementsRepository.find({
+      where: { groupId },
+    });
+
+    // Build name map
+    const userNameMap = new Map<string, string>();
+    for (const m of group.members) {
+      userNameMap.set(m.userId, m.user?.name || 'Unknown');
+    }
+
+    // Per-member: amountPaid and shareOwed
+    const amountPaid = new Map<string, number>();
+    const shareOwed = new Map<string, number>();
+    for (const m of group.members) {
+      amountPaid.set(m.userId, 0);
+      shareOwed.set(m.userId, 0);
+    }
+
+    let totalAmount = 0;
+
+    for (const expense of expenses) {
+      let amount = Number(expense.amount);
+      if (expense.currency !== group.baseCurrency) {
+        try {
+          amount = await this.currencyService.convert(amount, expense.currency, group.baseCurrency);
+        } catch { /* use original */ }
+      }
+      totalAmount += amount;
+
+      const prev = amountPaid.get(expense.paidBy) || 0;
+      amountPaid.set(expense.paidBy, prev + amount);
+
+      const totalOriginal = Number(expense.amount);
+      const ratio = totalOriginal > 0 ? amount / totalOriginal : 1;
+
+      for (const split of expense.splits) {
+        const splitAmt = Number(split.amount) * ratio;
+        const prevOwed = shareOwed.get(split.userId) || 0;
+        shareOwed.set(split.userId, prevOwed + splitAmt);
+      }
+    }
+
+    const memberStats = group.members.map((m) => {
+      const paid = Math.round((amountPaid.get(m.userId) || 0) * 100) / 100;
+      const owed = Math.round((shareOwed.get(m.userId) || 0) * 100) / 100;
+      return {
+        userId: m.userId,
+        userName: userNameMap.get(m.userId) || 'Unknown',
+        amountPaid: paid,
+        shareOwed: owed,
+        netBalance: Math.round((paid - owed) * 100) / 100,
+      };
+    });
+
+    // Monthly breakdown
+    const monthMap = new Map<string, { totalAmount: number; expenseCount: number }>();
+    for (const expense of expenses) {
+      let amount = Number(expense.amount);
+      if (expense.currency !== group.baseCurrency) {
+        try {
+          amount = await this.currencyService.convert(amount, expense.currency, group.baseCurrency);
+        } catch { /* use original */ }
+      }
+      const d = new Date(expense.date);
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const existing = monthMap.get(key) || { totalAmount: 0, expenseCount: 0 };
+      monthMap.set(key, {
+        totalAmount: existing.totalAmount + amount,
+        expenseCount: existing.expenseCount + 1,
+      });
+    }
+
+    const monthlyBreakdown = Array.from(monthMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, data]) => ({
+        month,
+        totalAmount: Math.round(data.totalAmount * 100) / 100,
+        expenseCount: data.expenseCount,
+      }));
+
+    return {
+      baseCurrency: group.baseCurrency,
+      totalAmount: Math.round(totalAmount * 100) / 100,
+      expenseCount: expenses.length,
+      settlementCount: settlements.length,
+      memberStats,
+      monthlyBreakdown,
+    };
   }
 
   async acceptInvite(userId: string, token: string): Promise<ExpenseGroup> {

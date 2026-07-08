@@ -7,14 +7,26 @@ import { ParsedExpense, ReceiptData } from '../common/types';
 @Injectable()
 export class OpenAIService implements LLMService {
   private readonly logger = new Logger(OpenAIService.name);
-  private readonly openai: OpenAI;
+  private _openai: OpenAI | null = null;
 
-  constructor(private configService: ConfigService) {
-    const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-    if (!apiKey) {
-      throw new Error('OPENAI_API_KEY is required');
+  constructor(private configService: ConfigService) {}
+
+  /**
+   * Lazily construct the OpenAI client. Deferring this to first use (instead of
+   * the constructor) lets the app boot without OPENAI_API_KEY — e.g. when
+   * LLM_PROVIDER=self-hosted — and only errors if an OpenAI call is actually made.
+   */
+  private get openai(): OpenAI {
+    if (!this._openai) {
+      const apiKey = this.configService.get<string>('OPENAI_API_KEY');
+      if (!apiKey) {
+        throw new Error(
+          'OPENAI_API_KEY is not configured. Set it, or set LLM_PROVIDER=self-hosted to use a self-hosted model.',
+        );
+      }
+      this._openai = new OpenAI({ apiKey });
     }
-    this.openai = new OpenAI({ apiKey });
+    return this._openai;
   }
 
   async categorizeExpense(

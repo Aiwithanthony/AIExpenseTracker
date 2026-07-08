@@ -1,11 +1,14 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { LessThan, Repository } from 'typeorm';
+import { randomInt } from 'crypto';
 import TelegramBot from 'node-telegram-bot-api';
 import { User } from '../entities/user.entity';
 import { VoiceService } from '../voice/voice.service';
 import { ReceiptsService } from '../receipts/receipts.service';
+
+const LINK_CODE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
 @Injectable()
 export class TelegramService implements OnModuleInit {
@@ -44,14 +47,64 @@ export class TelegramService implements OnModuleInit {
 
   private async setupWebhook(webhookUrl: string) {
     try {
-      await this.bot.setWebHook(`${webhookUrl}/telegram/webhook`);
+      const secretToken = this.configService.get<string>('TELEGRAM_WEBHOOK_SECRET');
+      if (!secretToken) {
+        this.logger.error(
+          'TELEGRAM_WEBHOOK_URL is set but TELEGRAM_WEBHOOK_SECRET is not. ' +
+            'Refusing to register an unauthenticated webhook — set a strong secret to prevent forged updates.',
+        );
+        return;
+      }
+
+      await this.bot.setWebHook(`${webhookUrl}/telegram/webhook`, {
+        secret_token: secretToken,
+      });
       this.logger.log(`Telegram webhook set to: ${webhookUrl}/telegram/webhook`);
-      
+
       // Set up handlers for webhook updates
       this.setupHandlers();
     } catch (error) {
       this.logger.error('Error setting Telegram webhook', error);
     }
+  }
+
+  /**
+   * Constant-time check of the secret token Telegram echoes back in the
+   * `X-Telegram-Bot-Api-Secret-Token` header. Returns false unless a secret is
+   * configured AND matches, so forged POSTs to /telegram/webhook are rejected.
+   */
+  verifyWebhookSecret(headerToken: string | undefined): boolean {
+    const expected = this.configService.get<string>('TELEGRAM_WEBHOOK_SECRET');
+    if (!expected || !headerToken) {
+      return false;
+    }
+    if (headerToken.length !== expected.length) {
+      return false;
+    }
+    let mismatch = 0;
+    for (let i = 0; i < expected.length; i++) {
+      mismatch |= expected.charCodeAt(i) ^ headerToken.charCodeAt(i);
+    }
+    return mismatch === 0;
+  }
+
+  /**
+   * Generate a one-time link code for an authenticated user. They send
+   * `/link <code>` to the bot to bind their Telegram chat. Codes expire after
+   * LINK_CODE_TTL_MS and are single-use.
+   */
+  async generateLinkCode(userId: string): Promise<{ code: string; expiresAt: Date }> {
+    const user = await this.usersRepository.findOne({ where: { id: userId } });
+    if (!user) {
+      throw new Error('User not found');
+    }
+    // 8-digit numeric code, easy to type into Telegram
+    const code = randomInt(0, 100_000_000).toString().padStart(8, '0');
+    const expiresAt = new Date(Date.now() + LINK_CODE_TTL_MS);
+    user.telegramLinkCode = code;
+    user.telegramLinkCodeExpires = expiresAt;
+    await this.usersRepository.save(user);
+    return { code, expiresAt };
   }
 
   // Handle webhook updates
@@ -77,8 +130,8 @@ export class TelegramService implements OnModuleInit {
               'Welcome to Expense Tracker! Send me a text message, voice message, or photo of a receipt to log expenses.',
             );
           } else if (msg.text.startsWith('/link')) {
-            const email = msg.text.split(' ')[1];
-            await this.handleLinkCommand(msg.chat.id, email);
+            const code = msg.text.split(' ')[1];
+            await this.handleLinkCommand(msg.chat.id, code);
           } else {
             // Regular text message - try to parse as expense
             await this.handleTextMessage(msg);
@@ -111,10 +164,10 @@ export class TelegramService implements OnModuleInit {
     });
 
     // Link account command - polling mode
-    this.bot.onText(/\/link (.+)/, async (msg, match) => {
+    this.bot.onText(/\/link(?:\s+(.+))?/, async (msg, match) => {
       const chatId = msg.chat.id;
-      const email = match[1];
-      await this.handleLinkCommand(chatId, email);
+      const code = match?.[1];
+      await this.handleLinkCommand(chatId, code);
     });
 
     // Text message handler (for non-command text) - polling mode
@@ -135,7 +188,7 @@ export class TelegramService implements OnModuleInit {
       if (!user) {
         await this.bot.sendMessage(
           chatId,
-          'Please link your account first. Use /link <email> in the app.',
+          'Please link your account first. Open the app → Settings → "Connect Telegram" to get a code, then send /link <code> here.',
         );
         return;
       }
@@ -187,7 +240,7 @@ export class TelegramService implements OnModuleInit {
       if (!user) {
         await this.bot.sendMessage(
           chatId,
-          'Please link your account first. Use /link <email> in the app.',
+          'Please link your account first. Open the app → Settings → "Connect Telegram" to get a code, then send /link <code> here.',
         );
         return;
       }
@@ -233,7 +286,7 @@ export class TelegramService implements OnModuleInit {
       if (!user) {
         await this.bot.sendMessage(
           chatId,
-          'Please link your account first. Use /link <email> in the app.',
+          'Please link your account first. Open the app → Settings → "Connect Telegram" to get a code, then send /link <code> here.',
         );
         return;
       }
@@ -270,18 +323,39 @@ export class TelegramService implements OnModuleInit {
     }
   }
 
-  private async handleLinkCommand(chatId: number, email: string) {
+  private async handleLinkCommand(chatId: number, code: string | undefined) {
     try {
-      const user = await this.usersRepository.findOne({
-        where: { email },
-      });
+      const trimmed = (code || '').trim();
 
-      if (!user) {
-        await this.bot.sendMessage(chatId, 'User not found. Please check your email.');
+      if (!trimmed || !/^\d{8}$/.test(trimmed)) {
+        await this.bot.sendMessage(
+          chatId,
+          'To link your account, open the Expense Tracker app → Settings → "Connect Telegram" to get an 8-digit code, then send it here as: /link 12345678',
+        );
         return;
       }
 
+      const user = await this.usersRepository.findOne({
+        where: { telegramLinkCode: trimmed },
+      });
+
+      // Reject unknown or expired codes without revealing which — no user enumeration.
+      if (
+        !user ||
+        !user.telegramLinkCodeExpires ||
+        user.telegramLinkCodeExpires.getTime() < Date.now()
+      ) {
+        await this.bot.sendMessage(
+          chatId,
+          '❌ That code is invalid or has expired. Generate a fresh one in the app and try again.',
+        );
+        return;
+      }
+
+      // Single-use: consume the code and bind this chat.
       user.telegramChatId = chatId.toString();
+      user.telegramLinkCode = null;
+      user.telegramLinkCodeExpires = null;
       await this.usersRepository.save(user);
 
       await this.bot.sendMessage(chatId, '✅ Account linked successfully!');

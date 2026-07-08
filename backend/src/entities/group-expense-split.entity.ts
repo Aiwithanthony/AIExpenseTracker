@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { GroupExpense } from './group-expense.entity';
 import { User } from './user.entity';
+import { DecimalTransformer } from '../common/transformers/decimal.transformer';
 
 @Entity('group_expense_splits')
 @Unique(['groupExpenseId', 'userId'])
@@ -21,7 +22,7 @@ export class GroupExpenseSplit {
   @Column()
   userId: string;
 
-  @Column('decimal', { precision: 18, scale: 2 })
+  @Column('decimal', { precision: 18, scale: 2, transformer: DecimalTransformer })
   amount: number;
 
   @ManyToOne(() => GroupExpense, (expense) => expense.splits, { onDelete: 'CASCADE' })

@@ -112,6 +112,14 @@ export class AddMembersDto {
 }
 
 export class CreateInviteDto {
+  // Optional: an invite can either target a specific email or just produce a
+  // shareable link/token the inviter sends however they like (no mailer required).
+  @IsOptional()
   @IsEmail()
-  email: string;
+  email?: string;
+}
+
+export class AddCommentDto {
+  @IsString()
+  text: string;
 }

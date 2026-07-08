@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   Alert,
   ActivityIndicator,
@@ -11,17 +10,17 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
+import { Text } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import { Plant } from 'phosphor-react-native';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import GlassCard from '../components/GlassCard';
 import GlassInput from '../components/GlassInput';
 import AnimatedPressable from '../components/AnimatedPressable';
 
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
+const BENTO_RADIUS = 18;
 
 export default function RegisterScreen({ navigation }: any) {
   const { colors, isDark } = useTheme();
@@ -49,10 +48,7 @@ export default function RegisterScreen({ navigation }: any) {
   };
 
   return (
-    <LinearGradient
-      colors={['#0D0221', '#0F0326', '#1A0533']}
-      style={styles.gradient}
-    >
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         <KeyboardAvoidingView
           style={styles.keyboardAvoiding}
@@ -64,30 +60,27 @@ export default function RegisterScreen({ navigation }: any) {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              {/* Decorative orbs */}
-              <View style={styles.orbContainer}>
-                <View style={[styles.orb, styles.orbPrimary]} />
-                <View style={[styles.orb, styles.orbSecondary]} />
-              </View>
-
               {/* Branding Area */}
               <Animated.View
-                entering={FadeInDown.duration(600).delay(100)}
+                entering={FadeInDown.duration(400).delay(0)}
                 style={styles.brandingArea}
               >
-                <Text style={styles.title}>Create Account</Text>
-                <Text style={styles.subtitle}>Sign up to get started</Text>
+                <View style={[styles.brandIcon, { backgroundColor: colors.tintCool }]}>
+                  <Plant size={32} color={colors.tintCoolText} weight="duotone" />
+                </View>
+                <Text style={[styles.title, { color: colors.text }]}>Create account</Text>
+                <Text style={[styles.subtitle, { color: colors.textSecondary }]}>A cozier way to track your money</Text>
               </Animated.View>
 
               {/* Form Card */}
-              <Animated.View entering={FadeInDown.duration(600).delay(250)}>
-                <GlassCard style={styles.formCard}>
+              <Animated.View entering={FadeInDown.duration(400).delay(80)}>
+                <GlassCard style={styles.formCard} tint={isDark ? 'dark' : 'light'}>
                   <GlassInput
                     label="Full Name"
-                    isDark={true}
-                    textColor="#FFFFFF"
-                    placeholderColor="rgba(255,255,255,0.4)"
-                    labelColor="rgba(255,255,255,0.6)"
+                    isDark={isDark}
+                    textColor={colors.text}
+                    placeholderColor={colors.textTertiary}
+                    labelColor={colors.textSecondary}
                     placeholder="Full Name"
                     value={name}
                     onChangeText={setName}
@@ -95,10 +88,10 @@ export default function RegisterScreen({ navigation }: any) {
 
                   <GlassInput
                     label="Email"
-                    isDark={true}
-                    textColor="#FFFFFF"
-                    placeholderColor="rgba(255,255,255,0.4)"
-                    labelColor="rgba(255,255,255,0.6)"
+                    isDark={isDark}
+                    textColor={colors.text}
+                    placeholderColor={colors.textTertiary}
+                    labelColor={colors.textSecondary}
                     placeholder="Email"
                     value={email}
                     onChangeText={setEmail}
@@ -108,10 +101,10 @@ export default function RegisterScreen({ navigation }: any) {
 
                   <GlassInput
                     label="Password"
-                    isDark={true}
-                    textColor="#FFFFFF"
-                    placeholderColor="rgba(255,255,255,0.4)"
-                    labelColor="rgba(255,255,255,0.6)"
+                    isDark={isDark}
+                    textColor={colors.text}
+                    placeholderColor={colors.textTertiary}
+                    labelColor={colors.textSecondary}
                     placeholder="Password"
                     value={password}
                     onChangeText={setPassword}
@@ -120,10 +113,10 @@ export default function RegisterScreen({ navigation }: any) {
 
                   <GlassInput
                     label="Phone Number"
-                    isDark={true}
-                    textColor="#FFFFFF"
-                    placeholderColor="rgba(255,255,255,0.4)"
-                    labelColor="rgba(255,255,255,0.6)"
+                    isDark={isDark}
+                    textColor={colors.text}
+                    placeholderColor={colors.textTertiary}
+                    labelColor={colors.textSecondary}
                     placeholder="Phone Number (Optional)"
                     value={phoneNumber}
                     onChangeText={setPhoneNumber}
@@ -133,36 +126,36 @@ export default function RegisterScreen({ navigation }: any) {
               </Animated.View>
 
               {/* Sign Up Button */}
-              <Animated.View entering={FadeInDown.duration(600).delay(400)}>
+              <Animated.View entering={FadeInDown.duration(400).delay(160)}>
                 <AnimatedPressable
                   onPress={handleRegister}
                   disabled={loading}
                   style={styles.signUpButtonWrapper}
                 >
-                  <LinearGradient
-                    colors={[ACCENT, ACCENT_LIGHT]}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
-                    style={styles.signUpButton}
+                  <View
+                    style={[
+                      styles.signUpButton,
+                      { backgroundColor: colors.primary },
+                    ]}
                   >
                     {loading ? (
                       <ActivityIndicator color="#fff" />
                     ) : (
                       <Text style={styles.signUpButtonText}>Sign Up</Text>
                     )}
-                  </LinearGradient>
+                  </View>
                 </AnimatedPressable>
               </Animated.View>
 
               {/* Sign In Link */}
-              <Animated.View entering={FadeInDown.duration(600).delay(550)}>
+              <Animated.View entering={FadeInDown.duration(400).delay(240)}>
                 <AnimatedPressable
                   onPress={() => navigation.navigate('Login')}
                   style={styles.linkButton}
                 >
-                  <Text style={styles.linkText}>
+                  <Text style={[styles.linkText, { color: colors.textSecondary }]}>
                     Already have an account?{' '}
-                    <Text style={styles.linkTextAccent}>Sign in</Text>
+                    <Text style={[styles.linkTextAccent, { color: colors.primary }]}>Sign in</Text>
                   </Text>
                 </AnimatedPressable>
               </Animated.View>
@@ -170,12 +163,12 @@ export default function RegisterScreen({ navigation }: any) {
           </TouchableWithoutFeedback>
         </KeyboardAvoidingView>
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  gradient: {
+  container: {
     flex: 1,
   },
   safeArea: {
@@ -190,46 +183,30 @@ const styles = StyleSheet.create({
     padding: 20,
   },
 
-  // Decorative orbs
-  orbContainer: {
-    ...StyleSheet.absoluteFillObject,
-    overflow: 'hidden',
-    zIndex: -1,
-  },
-  orb: {
-    position: 'absolute',
-    borderRadius: 999,
-  },
-  orbPrimary: {
-    width: 220,
-    height: 220,
-    top: -50,
-    right: -50,
-    backgroundColor: 'rgba(106, 13, 173, 0.3)',
-  },
-  orbSecondary: {
-    width: 180,
-    height: 180,
-    bottom: -40,
-    left: -40,
-    backgroundColor: 'rgba(91, 82, 255, 0.2)',
-  },
-
   // Branding
   brandingArea: {
     alignItems: 'center',
     marginBottom: 32,
   },
+  brandIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+  },
+  brandIconText: {
+    fontSize: 34,
+  },
   title: {
     fontSize: 34,
     fontWeight: '700',
-    color: '#FFFFFF',
     textAlign: 'center',
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.5)',
     textAlign: 'center',
   },
 
@@ -242,13 +219,13 @@ const styles = StyleSheet.create({
   // Sign Up Button
   signUpButtonWrapper: {
     marginTop: 8,
-    borderRadius: 14,
+    borderRadius: BENTO_RADIUS,
     overflow: 'hidden',
   },
   signUpButton: {
     paddingVertical: 16,
     alignItems: 'center',
-    borderRadius: 14,
+    borderRadius: BENTO_RADIUS,
   },
   signUpButtonText: {
     color: '#FFFFFF',
@@ -263,10 +240,8 @@ const styles = StyleSheet.create({
   },
   linkText: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.5)',
   },
   linkTextAccent: {
-    color: ACCENT_LIGHT,
     fontWeight: '600',
   },
 });

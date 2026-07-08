@@ -204,5 +204,5 @@ export interface LocationRule {
   radius: number;
   minTimeSpent: number;
   name?: string;
-  isActive: boolean;
+  enabled: boolean;
 }

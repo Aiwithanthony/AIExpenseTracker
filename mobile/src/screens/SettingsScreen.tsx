@@ -1,7 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
-  Text,
   StyleSheet,
   ScrollView,
   Switch,
@@ -12,33 +11,22 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { Text } from '../components/AppText';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { BlurView } from 'expo-blur';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import * as Notifications from 'expo-notifications';
 import { useAuth } from '../context/AuthContext';
-import { useTheme } from '../context/ThemeContext';
+import { Check } from 'phosphor-react-native';
+import { useTheme, ACCENT_COLORS, AccentColorKey } from '../context/ThemeContext';
 import { useData } from '../context/DataContext';
 import { api } from '../services/api';
-import GlassCard from '../components/GlassCard';
 import GlassInput from '../components/GlassInput';
 import AnimatedPressable from '../components/AnimatedPressable';
 
-const GLASS = {
-  borderColor: 'rgba(255, 255, 255, 0.2)',
-  borderColorStrong: 'rgba(255, 255, 255, 0.3)',
-  bgLight: 'rgba(255, 255, 255, 0.08)',
-  bgMedium: 'rgba(255, 255, 255, 0.12)',
-  bgDark: 'rgba(0, 0, 0, 0.2)',
-  blurIntensity: 60,
-  borderRadius: 16,
-};
-
-const ACCENT = '#6A0DAD';
-const ACCENT_LIGHT = '#8B2FC9';
-
 const CURRENCIES = [
-  // Primary & MENA region
   { code: 'USD', name: 'US Dollar', symbol: '$' },
   { code: 'LBP', name: 'Lebanese Pound', symbol: 'L\u00A3' },
   { code: 'AED', name: 'UAE Dirham', symbol: 'AED' },
@@ -56,7 +44,6 @@ const CURRENCIES = [
   { code: 'LYD', name: 'Libyan Dinar', symbol: 'LYD' },
   { code: 'SYP', name: 'Syrian Pound', symbol: 'SYP' },
   { code: 'TRY', name: 'Turkish Lira', symbol: '\u20BA' },
-  // Major global
   { code: 'EUR', name: 'Euro', symbol: '\u20AC' },
   { code: 'GBP', name: 'British Pound', symbol: '\u00A3' },
   { code: 'JPY', name: 'Japanese Yen', symbol: '\u00A5' },
@@ -69,24 +56,20 @@ const CURRENCIES = [
   { code: 'SGD', name: 'Singapore Dollar', symbol: 'S$' },
   { code: 'HKD', name: 'Hong Kong Dollar', symbol: 'HK$' },
   { code: 'NZD', name: 'New Zealand Dollar', symbol: 'NZ$' },
-  // Africa
   { code: 'NGN', name: 'Nigerian Naira', symbol: '\u20A6' },
   { code: 'GHS', name: 'Ghanaian Cedi', symbol: 'GH\u20B5' },
   { code: 'KES', name: 'Kenyan Shilling', symbol: 'KSh' },
   { code: 'ZAR', name: 'South African Rand', symbol: 'R' },
-  // Europe
   { code: 'SEK', name: 'Swedish Krona', symbol: 'kr' },
   { code: 'NOK', name: 'Norwegian Krone', symbol: 'kr' },
   { code: 'DKK', name: 'Danish Krone', symbol: 'kr' },
   { code: 'PLN', name: 'Polish Zloty', symbol: 'z\u0142' },
-  // Americas
   { code: 'MXN', name: 'Mexican Peso', symbol: 'MX$' },
   { code: 'BRL', name: 'Brazilian Real', symbol: 'R$' },
   { code: 'COP', name: 'Colombian Peso', symbol: 'COL$' },
   { code: 'ARS', name: 'Argentine Peso', symbol: 'AR$' },
   { code: 'CLP', name: 'Chilean Peso', symbol: 'CL$' },
   { code: 'PEN', name: 'Peruvian Sol', symbol: 'S/' },
-  // Asia-Pacific
   { code: 'THB', name: 'Thai Baht', symbol: '\u0E3F' },
   { code: 'IDR', name: 'Indonesian Rupiah', symbol: 'Rp' },
   { code: 'MYR', name: 'Malaysian Ringgit', symbol: 'RM' },
@@ -96,59 +79,151 @@ const CURRENCIES = [
 
 export default function SettingsScreen({ navigation }: any) {
   const { user, logout, updateUser } = useAuth();
-  const { theme, setTheme, isDark, colors } = useTheme();
+  const { theme, setTheme, isDark, colors, accentColor, setAccentColor } = useTheme();
   const { refreshExpenses } = useData();
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
-
-  // Edit Name state
   const [showNameModal, setShowNameModal] = useState(false);
   const [editName, setEditName] = useState(user?.name || '');
   const [savingName, setSavingName] = useState(false);
-
-  // Currency Picker state
   const [showCurrencyModal, setShowCurrencyModal] = useState(false);
   const [savingCurrency, setSavingCurrency] = useState(false);
+  const [showWhatsappModal, setShowWhatsappModal] = useState(false);
+  const [editWhatsapp, setEditWhatsapp] = useState(user?.whatsappNumber || '');
+  const [savingWhatsapp, setSavingWhatsapp] = useState(false);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [savingPassword, setSavingPassword] = useState(false);
+
+  // Restore the persisted notifications preference on mount.
+  useEffect(() => {
+    AsyncStorage.getItem('notifications_enabled').then((v) => {
+      if (v !== null) setNotificationsEnabled(v === 'true');
+    });
+  }, []);
 
   const handleLogout = () => {
-    Alert.alert('Logout', 'Are you sure you want to logout?', [
+    Alert.alert('Logout', 'You\'ll need to sign in again to access your data.', [
       { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Logout',
-        style: 'destructive',
-        onPress: async () => {
-          await logout();
-        },
-      },
+      { text: 'Logout', style: 'destructive', onPress: async () => { await logout(); } },
     ]);
+  };
+
+  const handleToggleNotifications = async (value: boolean) => {
+    setNotificationsEnabled(value);
+    await AsyncStorage.setItem('notifications_enabled', String(value));
+    if (value) {
+      const current = await Notifications.getPermissionsAsync();
+      if (current.status !== 'granted') {
+        const requested = await Notifications.requestPermissionsAsync();
+        if (requested.status !== 'granted') {
+          Alert.alert(
+            'Notifications Disabled',
+            'To receive reminders, enable notifications for Expense Tracker in your device settings.',
+          );
+        }
+      }
+    }
   };
 
   const handleExport = async (format: 'csv' | 'json') => {
     try {
+      let content: string;
+      let filename: string;
+      let mimeType: string;
+
       if (format === 'csv') {
-        const csv = await api.exportExpensesCSV();
-        Alert.alert('Export', 'CSV exported successfully!');
+        content = await api.exportExpensesCSV();
+        filename = `expenses-${Date.now()}.csv`;
+        mimeType = 'text/csv';
       } else {
-        const json = await api.exportExpensesJSON();
-        Alert.alert('Export', 'JSON exported successfully!');
+        const data = await api.exportExpensesJSON();
+        content = JSON.stringify(data, null, 2);
+        filename = `expenses-${Date.now()}.json`;
+        mimeType = 'application/json';
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to export data');
+
+      const fileUri = `${FileSystem.cacheDirectory}${filename}`;
+      await FileSystem.writeAsStringAsync(fileUri, content);
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri, { mimeType, dialogTitle: 'Export expenses' });
+      } else {
+        Alert.alert('Export Saved', `Your ${format.toUpperCase()} export was saved to:\n${fileUri}`);
+      }
+    } catch (error: any) {
+      Alert.alert('Export Failed', error?.message || 'Could not export your data. Check your connection and try again.');
+    }
+  };
+
+  const handleConnectTelegram = async () => {
+    try {
+      const res = await api.createTelegramLinkCode();
+      Alert.alert(
+        'Connect Telegram',
+        `Open the Expense Tracker bot in Telegram and send:\n\n/link ${res.code}\n\nThis code expires in 10 minutes.`,
+      );
+    } catch (error: any) {
+      Alert.alert('Error', error?.message || 'Could not generate a Telegram link code.');
+    }
+  };
+
+  const openPasswordModal = () => {
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setShowPasswordModal(true);
+  };
+
+  const handleChangePassword = async () => {
+    if (newPassword.length < 12) {
+      Alert.alert('Password Too Short', 'Your new password must be at least 12 characters.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Passwords Do Not Match', 'The new password and confirmation must match.');
+      return;
+    }
+    setSavingPassword(true);
+    try {
+      await api.changePassword(currentPassword, newPassword);
+      setShowPasswordModal(false);
+      Alert.alert('Password Changed', 'Your password has been updated.');
+    } catch (error: any) {
+      Alert.alert('Update Failed', error?.message || 'Could not change your password.');
+    } finally {
+      setSavingPassword(false);
+    }
+  };
+
+  const handleSaveWhatsapp = async () => {
+    const trimmed = editWhatsapp.trim();
+    setSavingWhatsapp(true);
+    try {
+      await updateUser({ whatsappNumber: trimmed });
+      setShowWhatsappModal(false);
+      Alert.alert('WhatsApp Updated', 'Your WhatsApp number has been saved.');
+    } catch (error: any) {
+      Alert.alert('Update Failed', error?.message || 'Could not save your WhatsApp number.');
+    } finally {
+      setSavingWhatsapp(false);
     }
   };
 
   const handleSaveName = async () => {
     const trimmed = editName.trim();
     if (!trimmed) {
-      Alert.alert('Error', 'Name cannot be empty');
+      Alert.alert('Invalid Name', 'Please enter at least one character for your display name.');
       return;
     }
     setSavingName(true);
     try {
       await updateUser({ name: trimmed });
       setShowNameModal(false);
-      Alert.alert('Success', 'Name updated successfully');
+      Alert.alert('Name Updated', 'Your display name has been changed.');
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update name');
+      Alert.alert('Update Failed', error.message || 'Could not save your name. Check your connection and try again.');
     } finally {
       setSavingName(false);
     }
@@ -161,57 +236,43 @@ export default function SettingsScreen({ navigation }: any) {
     }
     setSavingCurrency(true);
     try {
-      // 1. Update user's preferred currency
       await updateUser({ currency: currencyCode });
-      // 2. Re-convert all existing expenses to the new currency
       await api.reconvertExpenses();
-      // 3. Refresh cached expense data so all screens show updated amounts
       await refreshExpenses();
       setShowCurrencyModal(false);
-      Alert.alert('Success', `Currency changed to ${currencyCode}. All amounts have been converted.`);
+      Alert.alert('Currency Updated', `Currency changed to ${currencyCode}. All amounts have been converted.`);
     } catch (error: any) {
-      Alert.alert('Error', error.message || 'Failed to update currency');
+      Alert.alert('Update Failed', error.message || 'Could not change currency. Check your connection and try again.');
     } finally {
       setSavingCurrency(false);
     }
   };
 
-  const renderThemeButton = (
-    value: 'light' | 'dark' | 'auto',
-    label: string,
-  ) => {
+  const renderThemeButton = (value: 'light' | 'dark' | 'auto', label: string) => {
     const isActive = theme === value;
     return (
       <AnimatedPressable
         onPress={() => setTheme(value)}
         style={styles.themeButtonWrapper}
       >
-        {isActive ? (
-          <LinearGradient
-            colors={[ACCENT, ACCENT_LIGHT]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.themeButton}
-          >
-            <Text style={[styles.themeButtonText, styles.themeButtonTextActive]}>
-              {label}
-            </Text>
-          </LinearGradient>
-        ) : (
-          <BlurView
-            intensity={GLASS.blurIntensity}
-            tint={isDark ? 'dark' : 'light'}
-            style={[
-              styles.themeButton,
-              styles.themeButtonInactive,
-              !isDark && { backgroundColor: 'rgba(0, 0, 0, 0.06)' },
-            ]}
-          >
-            <Text style={[styles.themeButtonText, { color: colors.text }]}>
-              {label}
-            </Text>
-          </BlurView>
-        )}
+        <View style={[
+          styles.themeButton,
+          isActive
+            ? { backgroundColor: colors.primary }
+            : {
+                backgroundColor: colors.inputBg,
+                borderWidth: 0.5,
+                borderColor: colors.borderStrong,
+              },
+        ]}>
+          <Text style={[
+            styles.themeButtonText,
+            { color: isActive ? '#ffffff' : colors.text },
+            isActive && { fontWeight: '700' },
+          ]}>
+            {label}
+          </Text>
+        </View>
       </AnimatedPressable>
     );
   };
@@ -224,21 +285,19 @@ export default function SettingsScreen({ navigation }: any) {
         disabled={savingCurrency}
         scaleValue={0.98}
       >
-        <BlurView
-          intensity={isDark ? 30 : 20}
-          tint={isDark ? 'dark' : 'light'}
-          style={[
-            styles.currencyItem,
-            {
-              backgroundColor: isSelected
-                ? ACCENT + '25'
-                : isDark ? GLASS.bgLight : 'rgba(255,255,255,0.5)',
-              borderColor: isSelected ? ACCENT : GLASS.borderColor,
-            },
-          ]}
-        >
+        <View style={[
+          styles.currencyItem,
+          {
+            backgroundColor: isSelected
+              ? `${colors.primary}12`
+              : colors.card,
+            borderColor: isSelected
+              ? colors.primary
+              : colors.borderStrong,
+          },
+        ]}>
           <View style={styles.currencyInfo}>
-            <Text style={[styles.currencySymbol, { color: isSelected ? ACCENT_LIGHT : colors.textSecondary }]}>
+            <Text style={[styles.currencySymbol, { color: isSelected ? colors.primary : colors.textSecondary }]}>
               {item.symbol}
             </Text>
             <View>
@@ -247,223 +306,215 @@ export default function SettingsScreen({ navigation }: any) {
             </View>
           </View>
           {isSelected && (
-            <Text style={{ color: ACCENT_LIGHT, fontSize: 18 }}>{'\u2713'}</Text>
+            <Check size={18} color={colors.primary} weight="bold" />
           )}
-        </BlurView>
+        </View>
       </AnimatedPressable>
     );
   };
 
   return (
-    <View
-      style={[styles.container, { backgroundColor: isDark ? '#0D0D0D' : colors.background }]}
-    >
+    <View style={[styles.container, { backgroundColor: colors.background }]}>
       <ScrollView
-        style={[styles.container, { backgroundColor: isDark ? '#0D0D0D' : colors.background }]}
+        style={styles.container}
         showsVerticalScrollIndicator={false}
       >
         {/* Header */}
         <SafeAreaView edges={['top']} style={{ backgroundColor: 'transparent' }}>
-          <Animated.View entering={FadeInDown.duration(500).delay(0)}>
-            <LinearGradient
-              colors={['#1A0030', '#2D004F', ACCENT]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.header}
-            >
-              <Text style={styles.title}>{'\u2699\uFE0F'} Settings</Text>
-            </LinearGradient>
+          <Animated.View entering={FadeInDown.duration(400)}>
+            <View style={styles.header}>
+              <Text style={[styles.title, { color: colors.text }]}>Settings</Text>
+            </View>
           </Animated.View>
         </SafeAreaView>
 
         {/* Profile Section */}
-        <Animated.View
-          entering={FadeInDown.duration(500).delay(100)}
-          style={styles.sectionWrapper}
-        >
-          <GlassCard style={styles.section} tint={isDark ? 'dark' : 'light'}>
-            <Text style={styles.sectionTitle}>PROFILE</Text>
+        <Animated.View entering={FadeInDown.duration(400).delay(100)} style={styles.sectionWrapper}>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>PROFILE</Text>
+          <View style={[styles.sectionCard, { backgroundColor: colors.card }]}>
             <AnimatedPressable
-              onPress={() => {
-                setEditName(user?.name || '');
-                setShowNameModal(true);
-              }}
+              onPress={() => { setEditName(user?.name || ''); setShowNameModal(true); }}
               scaleValue={0.99}
             >
-              <View style={styles.glassRow}>
-                <Text style={[styles.settingLabel, { color: colors.text }]}>Name</Text>
-                <View style={styles.editableValue}>
-                  <Text style={[styles.settingValue, { color: colors.textSecondary }]}>
+              <View style={styles.row}>
+                <Text style={[styles.rowLabel, { color: colors.text }]}>Name</Text>
+                <View style={styles.rowRight}>
+                  <Text style={[styles.rowValue, { color: colors.textSecondary }]}>
                     {user?.name || 'N/A'}
                   </Text>
-                  <Text style={styles.chevron}>{'\u203A'}</Text>
+                  <Text style={[styles.chevron, { color: colors.textTertiary }]}>{'\u203A'}</Text>
                 </View>
               </View>
             </AnimatedPressable>
-            <View style={styles.rowSeparator} />
-            <View style={styles.glassRow}>
-              <Text style={[styles.settingLabel, { color: colors.text }]}>Email</Text>
-              <Text style={[styles.settingValue, { color: colors.textSecondary }]}>
+            <View style={[styles.separator, { backgroundColor: colors.border }]} />
+            <View style={styles.row}>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Email</Text>
+              <Text style={[styles.rowValue, { color: colors.textSecondary }]}>
                 {user?.email || 'N/A'}
               </Text>
             </View>
-            <View style={styles.rowSeparator} />
+            <View style={[styles.separator, { backgroundColor: colors.border }]} />
             <AnimatedPressable
               onPress={() => setShowCurrencyModal(true)}
               scaleValue={0.99}
             >
-              <View style={styles.glassRow}>
-                <Text style={[styles.settingLabel, { color: colors.text }]}>Currency</Text>
-                <View style={styles.editableValue}>
-                  <Text style={[styles.settingValue, { color: colors.textSecondary }]}>
+              <View style={styles.row}>
+                <Text style={[styles.rowLabel, { color: colors.text }]}>Currency</Text>
+                <View style={styles.rowRight}>
+                  <Text style={[styles.rowValue, { color: colors.textSecondary }]}>
                     {user?.currency || 'USD'}
                   </Text>
-                  <Text style={styles.chevron}>{'\u203A'}</Text>
+                  <Text style={[styles.chevron, { color: colors.textTertiary }]}>{'\u203A'}</Text>
                 </View>
               </View>
             </AnimatedPressable>
-          </GlassCard>
+            <View style={[styles.separator, { backgroundColor: colors.border }]} />
+            <AnimatedPressable onPress={openPasswordModal} scaleValue={0.99}>
+              <View style={styles.row}>
+                <Text style={[styles.rowLabel, { color: colors.text }]}>Change Password</Text>
+                <Text style={[styles.chevron, { color: colors.textTertiary }]}>{'\u203A'}</Text>
+              </View>
+            </AnimatedPressable>
+          </View>
         </Animated.View>
 
         {/* Preferences Section */}
-        <Animated.View
-          entering={FadeInDown.duration(500).delay(200)}
-          style={styles.sectionWrapper}
-        >
-          <GlassCard style={styles.section} tint={isDark ? 'dark' : 'light'}>
-            <Text style={styles.sectionTitle}>PREFERENCES</Text>
-            <View style={styles.glassRow}>
-              <Text style={[styles.settingLabel, { color: colors.text }]}>
-                Notifications
-              </Text>
+        <Animated.View entering={FadeInDown.duration(400).delay(200)} style={styles.sectionWrapper}>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>PREFERENCES</Text>
+          <View style={[styles.sectionCard, { backgroundColor: colors.card }]}>
+            <View style={styles.row}>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Notifications</Text>
               <Switch
                 value={notificationsEnabled}
-                onValueChange={setNotificationsEnabled}
-                trackColor={{ false: 'rgba(255,255,255,0.15)', true: ACCENT_LIGHT }}
-                thumbColor={notificationsEnabled ? '#FFFFFF' : '#CCCCCC'}
+                onValueChange={handleToggleNotifications}
+                trackColor={{ false: colors.inputBg, true: colors.success }}
+                thumbColor="#ffffff"
               />
             </View>
-            <View style={styles.rowSeparator} />
-            <View style={styles.glassRow}>
-              <Text style={[styles.settingLabel, { color: colors.text }]}>Theme</Text>
+            <View style={[styles.separator, { backgroundColor: colors.border }]} />
+            <View style={styles.row}>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Theme</Text>
               <View style={styles.themeSelector}>
                 {renderThemeButton('light', 'Light')}
                 {renderThemeButton('dark', 'Dark')}
                 {renderThemeButton('auto', 'Auto')}
               </View>
             </View>
-          </GlassCard>
+            <View style={[styles.separator, { backgroundColor: colors.border }]} />
+            <View style={styles.row}>
+              <Text style={[styles.rowLabel, { color: colors.text }]}>Accent Color</Text>
+              <View style={styles.accentSelector}>
+                {(Object.keys(ACCENT_COLORS) as AccentColorKey[]).map((key) => {
+                  const isSelected = accentColor === key;
+                  return (
+                    <AnimatedPressable
+                      key={key}
+                      onPress={() => setAccentColor(key)}
+                      scaleValue={0.85}
+                    >
+                      <View
+                        style={[
+                          styles.colorSwatch,
+                          { backgroundColor: ACCENT_COLORS[key].swatch },
+                          isSelected && styles.colorSwatchSelected,
+                        ]}
+                      >
+                        {isSelected && (
+                          <Check size={16} color="#FFFFFF" weight="bold" />
+                        )}
+                      </View>
+                    </AnimatedPressable>
+                  );
+                })}
+              </View>
+            </View>
+          </View>
         </Animated.View>
 
-        {/* Data Management Section */}
-        <Animated.View
-          entering={FadeInDown.duration(500).delay(300)}
-          style={styles.sectionWrapper}
-        >
-          <GlassCard style={styles.section} tint={isDark ? 'dark' : 'light'}>
-            <Text style={styles.sectionTitle}>DATA MANAGEMENT</Text>
-            <AnimatedPressable
-              onPress={() => handleExport('csv')}
-              style={styles.navRow}
-            >
-              <View style={styles.navRowInner}>
-                <Text style={[styles.navRowText, { color: ACCENT_LIGHT }]}>
-                  {'\uD83D\uDCC4'} Export as CSV
-                </Text>
-                <Text style={styles.chevron}>{'\u203A'}</Text>
+        {/* Data Management */}
+        <Animated.View entering={FadeInDown.duration(400).delay(300)} style={styles.sectionWrapper}>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>DATA</Text>
+          <View style={[styles.sectionCard, { backgroundColor: colors.card }]}>
+            <AnimatedPressable onPress={() => handleExport('csv')}>
+              <View style={styles.row}>
+                <Text style={[styles.rowLabel, { color: colors.primary }]}>Export as CSV</Text>
+                <Text style={[styles.chevron, { color: colors.textTertiary }]}>{'\u203A'}</Text>
               </View>
             </AnimatedPressable>
-            <View style={styles.rowSeparator} />
-            <AnimatedPressable
-              onPress={() => handleExport('json')}
-              style={styles.navRow}
-            >
-              <View style={styles.navRowInner}>
-                <Text style={[styles.navRowText, { color: ACCENT_LIGHT }]}>
-                  {'\uD83D\uDCC4'} Export as JSON
-                </Text>
-                <Text style={styles.chevron}>{'\u203A'}</Text>
+            <View style={[styles.separator, { backgroundColor: colors.border }]} />
+            <AnimatedPressable onPress={() => handleExport('json')}>
+              <View style={styles.row}>
+                <Text style={[styles.rowLabel, { color: colors.primary }]}>Export as JSON</Text>
+                <Text style={[styles.chevron, { color: colors.textTertiary }]}>{'\u203A'}</Text>
               </View>
             </AnimatedPressable>
-          </GlassCard>
+          </View>
         </Animated.View>
 
-        {/* Navigation Section */}
-        <Animated.View
-          entering={FadeInDown.duration(500).delay(400)}
-          style={styles.sectionWrapper}
-        >
-          <GlassCard style={styles.section} tint={isDark ? 'dark' : 'light'}>
-            <Text style={styles.sectionTitle}>NAVIGATION</Text>
-            <AnimatedPressable
-              onPress={() => navigation.navigate('Statistics')}
-              style={styles.navRow}
-            >
-              <View style={styles.navRowInner}>
-                <Text style={[styles.navRowText, { color: colors.text }]}>
-                  {'\uD83D\uDCCA'} View Statistics
-                </Text>
-                <Text style={styles.chevron}>{'\u203A'}</Text>
+        {/* Integrations */}
+        <Animated.View entering={FadeInDown.duration(400).delay(310)} style={styles.sectionWrapper}>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>INTEGRATIONS</Text>
+          <View style={[styles.sectionCard, { backgroundColor: colors.card }]}>
+            <AnimatedPressable onPress={handleConnectTelegram}>
+              <View style={styles.row}>
+                <Text style={[styles.rowLabel, { color: colors.text }]}>Connect Telegram</Text>
+                <Text style={[styles.chevron, { color: colors.textTertiary }]}>{'›'}</Text>
               </View>
             </AnimatedPressable>
-            <View style={styles.rowSeparator} />
+            <View style={[styles.separator, { backgroundColor: colors.border }]} />
             <AnimatedPressable
-              onPress={() => navigation.navigate('Calendar')}
-              style={styles.navRow}
+              onPress={() => { setEditWhatsapp(user?.whatsappNumber || ''); setShowWhatsappModal(true); }}
             >
-              <View style={styles.navRowInner}>
-                <Text style={[styles.navRowText, { color: colors.text }]}>
-                  {'\uD83D\uDCC5'} Calendar View
-                </Text>
-                <Text style={styles.chevron}>{'\u203A'}</Text>
+              <View style={styles.row}>
+                <Text style={[styles.rowLabel, { color: colors.text }]}>WhatsApp Number</Text>
+                <View style={styles.rowRight}>
+                  <Text style={[styles.rowValue, { color: colors.textSecondary }]}>
+                    {user?.whatsappNumber || 'Not set'}
+                  </Text>
+                  <Text style={[styles.chevron, { color: colors.textTertiary }]}>{'›'}</Text>
+                </View>
               </View>
             </AnimatedPressable>
-            <View style={styles.rowSeparator} />
-            <AnimatedPressable
-              onPress={() => navigation.navigate('Geolocation')}
-              style={styles.navRow}
-            >
-              <View style={styles.navRowInner}>
-                <Text style={[styles.navRowText, { color: colors.text }]}>
-                  {'\uD83D\uDCCD'} Location Tracking
-                </Text>
-                <Text style={styles.chevron}>{'\u203A'}</Text>
-              </View>
-            </AnimatedPressable>
-            <View style={styles.rowSeparator} />
-            <AnimatedPressable
-              onPress={() => navigation.navigate('Subscriptions')}
-              style={styles.navRow}
-            >
-              <View style={styles.navRowInner}>
-                <Text style={[styles.navRowText, { color: colors.text }]}>
-                  {'\u2B50'} Subscription
-                </Text>
-                <Text style={styles.chevron}>{'\u203A'}</Text>
-              </View>
-            </AnimatedPressable>
-          </GlassCard>
+          </View>
         </Animated.View>
 
-        {/* Account Section */}
-        <Animated.View
-          entering={FadeInDown.duration(500).delay(500)}
-          style={[styles.sectionWrapper, { marginBottom: 100 }]}
-        >
-          <GlassCard style={[styles.section, styles.logoutCard]} tint={isDark ? 'dark' : 'light'}>
-            <Text style={styles.sectionTitle}>ACCOUNT</Text>
-            <AnimatedPressable onPress={handleLogout} style={styles.logoutRow}>
-              <View style={styles.logoutRowInner}>
-                <Text style={styles.logoutText}>
-                  {'\uD83D\uDEAA'} Logout
-                </Text>
+        {/* Navigation */}
+        <Animated.View entering={FadeInDown.duration(400).delay(320)} style={styles.sectionWrapper}>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>MORE</Text>
+          <View style={[styles.sectionCard, { backgroundColor: colors.card }]}>
+            {[
+              { label: 'Statistics', screen: 'Statistics' },
+              { label: 'Location Tracking', screen: 'Geolocation' },
+              { label: 'Subscription', screen: 'Subscriptions' },
+            ].map((item, i, arr) => (
+              <React.Fragment key={item.screen}>
+                <AnimatedPressable onPress={() => navigation.navigate(item.screen)}>
+                  <View style={styles.row}>
+                    <Text style={[styles.rowLabel, { color: colors.text }]}>{item.label}</Text>
+                    <Text style={[styles.chevron, { color: colors.textTertiary }]}>{'\u203A'}</Text>
+                  </View>
+                </AnimatedPressable>
+                {i < arr.length - 1 && (
+                  <View style={[styles.separator, { backgroundColor: colors.border }]} />
+                )}
+              </React.Fragment>
+            ))}
+          </View>
+        </Animated.View>
+
+        {/* Logout */}
+        <Animated.View entering={FadeInDown.duration(400).delay(320)} style={[styles.sectionWrapper, { marginBottom: 100 }]}>
+          <View style={[styles.sectionCard, { backgroundColor: colors.card }]}>
+            <AnimatedPressable onPress={handleLogout}>
+              <View style={styles.row}>
+                <Text style={[styles.rowLabel, { color: colors.error }]}>Logout</Text>
               </View>
             </AnimatedPressable>
-          </GlassCard>
+          </View>
         </Animated.View>
       </ScrollView>
 
-      {/* ─── Edit Name Modal ─────────────────────────────────────────── */}
+      {/* Edit Name Modal */}
       <Modal
         visible={showNameModal}
         animationType="slide"
@@ -474,68 +525,55 @@ export default function SettingsScreen({ navigation }: any) {
           style={styles.modalOverlay}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
-          <BlurView
-            intensity={isDark ? 80 : 50}
-            tint={isDark ? 'dark' : 'light'}
-            style={[
-              styles.modalContent,
-              { backgroundColor: isDark ? 'rgba(20,10,40,0.9)' : 'rgba(255,255,255,0.9)' },
-            ]}
-          >
-            <View style={[styles.modalHeader, { borderBottomColor: GLASS.borderColor }]}>
+          <View style={[
+            styles.modalContent,
+            { backgroundColor: colors.card },
+          ]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
               <Text style={[styles.modalTitle, { color: colors.text }]}>Edit Name</Text>
               <AnimatedPressable
                 onPress={() => !savingName && setShowNameModal(false)}
                 scaleValue={0.9}
               >
-                <BlurView
-                  intensity={30}
-                  tint={isDark ? 'dark' : 'light'}
-                  style={styles.modalCancelButton}
-                >
-                  <Text style={[styles.modalCancelText, { color: colors.text }]}>Cancel</Text>
-                </BlurView>
+                <Text style={[styles.modalCancel, { color: colors.primary }]}>Cancel</Text>
               </AnimatedPressable>
             </View>
-
             <View style={styles.modalBody}>
               <GlassInput
                 label="Your Name"
                 isDark={isDark}
                 textColor={colors.text}
                 labelColor={colors.textSecondary}
-                placeholderColor={colors.textSecondary}
+                placeholderColor={colors.textTertiary}
                 placeholder="Enter your name"
                 value={editName}
                 onChangeText={setEditName}
                 autoFocus
               />
-
               <AnimatedPressable
                 onPress={handleSaveName}
                 disabled={savingName}
                 scaleValue={0.97}
                 style={{ marginTop: 8 }}
               >
-                <LinearGradient
-                  colors={[ACCENT, ACCENT_LIGHT]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={[styles.saveButton, savingName && { opacity: 0.6 }]}
-                >
+                <View style={[
+                  styles.saveButton,
+                  { backgroundColor: colors.primary },
+                  savingName && { opacity: 0.6 },
+                ]}>
                   {savingName ? (
-                    <ActivityIndicator color="#FFFFFF" />
+                    <ActivityIndicator color="#ffffff" />
                   ) : (
                     <Text style={styles.saveButtonText}>Save</Text>
                   )}
-                </LinearGradient>
+                </View>
               </AnimatedPressable>
             </View>
-          </BlurView>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ─── Currency Picker Modal ────────────────────────────────────── */}
+      {/* Currency Picker Modal */}
       <Modal
         visible={showCurrencyModal}
         animationType="slide"
@@ -543,15 +581,11 @@ export default function SettingsScreen({ navigation }: any) {
         onRequestClose={() => !savingCurrency && setShowCurrencyModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <BlurView
-            intensity={isDark ? 80 : 50}
-            tint={isDark ? 'dark' : 'light'}
-            style={[
-              styles.currencyModalContent,
-              { backgroundColor: isDark ? 'rgba(20,10,40,0.9)' : 'rgba(255,255,255,0.9)' },
-            ]}
-          >
-            <View style={[styles.modalHeader, { borderBottomColor: GLASS.borderColor }]}>
+          <View style={[
+            styles.currencyModalContent,
+            { backgroundColor: colors.card },
+          ]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
               <View>
                 <Text style={[styles.modalTitle, { color: colors.text }]}>Select Currency</Text>
                 <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
@@ -562,23 +596,15 @@ export default function SettingsScreen({ navigation }: any) {
                 onPress={() => !savingCurrency && setShowCurrencyModal(false)}
                 scaleValue={0.9}
               >
-                <BlurView
-                  intensity={30}
-                  tint={isDark ? 'dark' : 'light'}
-                  style={styles.modalCancelButton}
-                >
-                  <Text style={[styles.modalCancelText, { color: colors.text }]}>Close</Text>
-                </BlurView>
+                <Text style={[styles.modalCancel, { color: colors.primary }]}>Close</Text>
               </AnimatedPressable>
             </View>
-
             {savingCurrency && (
               <View style={styles.savingOverlay}>
-                <ActivityIndicator size="large" color={ACCENT} />
+                <ActivityIndicator size="large" color={colors.primary} />
                 <Text style={[styles.savingText, { color: colors.text }]}>Updating currency...</Text>
               </View>
             )}
-
             <FlatList
               data={CURRENCIES}
               renderItem={renderCurrencyItem}
@@ -587,8 +613,154 @@ export default function SettingsScreen({ navigation }: any) {
               showsVerticalScrollIndicator={false}
               ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
             />
-          </BlurView>
+          </View>
         </View>
+      </Modal>
+
+      {/* WhatsApp Number Modal */}
+      <Modal
+        visible={showWhatsappModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => !savingWhatsapp && setShowWhatsappModal(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={[
+            styles.modalContent,
+            { backgroundColor: colors.card },
+          ]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <View>
+                <Text style={[styles.modalTitle, { color: colors.text }]}>WhatsApp Number</Text>
+                <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
+                  Log expenses by messaging the bot
+                </Text>
+              </View>
+              <AnimatedPressable
+                onPress={() => !savingWhatsapp && setShowWhatsappModal(false)}
+                scaleValue={0.9}
+              >
+                <Text style={[styles.modalCancel, { color: colors.primary }]}>Cancel</Text>
+              </AnimatedPressable>
+            </View>
+            <View style={styles.modalBody}>
+              <GlassInput
+                label="Number (international format, e.g. +9613123456)"
+                isDark={isDark}
+                textColor={colors.text}
+                labelColor={colors.textSecondary}
+                placeholderColor={colors.textTertiary}
+                placeholder="+9613123456"
+                value={editWhatsapp}
+                onChangeText={setEditWhatsapp}
+                keyboardType="phone-pad"
+                autoFocus
+              />
+              <AnimatedPressable
+                onPress={handleSaveWhatsapp}
+                disabled={savingWhatsapp}
+                scaleValue={0.97}
+                style={{ marginTop: 8 }}
+              >
+                <View style={[
+                  styles.saveButton,
+                  { backgroundColor: colors.primary },
+                  savingWhatsapp && { opacity: 0.6 },
+                ]}>
+                  {savingWhatsapp ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>Save</Text>
+                  )}
+                </View>
+              </AnimatedPressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Change Password Modal */}
+      <Modal
+        visible={showPasswordModal}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => !savingPassword && setShowPasswordModal(false)}
+      >
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={[
+            styles.modalContent,
+            { backgroundColor: colors.card },
+          ]}>
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.modalTitle, { color: colors.text }]}>Change Password</Text>
+              <AnimatedPressable
+                onPress={() => !savingPassword && setShowPasswordModal(false)}
+                scaleValue={0.9}
+              >
+                <Text style={[styles.modalCancel, { color: colors.primary }]}>Cancel</Text>
+              </AnimatedPressable>
+            </View>
+            <View style={styles.modalBody}>
+              <GlassInput
+                label="Current Password"
+                isDark={isDark}
+                textColor={colors.text}
+                labelColor={colors.textSecondary}
+                placeholderColor={colors.textTertiary}
+                placeholder="Current password"
+                value={currentPassword}
+                onChangeText={setCurrentPassword}
+                secureTextEntry
+              />
+              <GlassInput
+                label="New Password (min 12 characters)"
+                isDark={isDark}
+                textColor={colors.text}
+                labelColor={colors.textSecondary}
+                placeholderColor={colors.textTertiary}
+                placeholder="New password"
+                value={newPassword}
+                onChangeText={setNewPassword}
+                secureTextEntry
+              />
+              <GlassInput
+                label="Confirm New Password"
+                isDark={isDark}
+                textColor={colors.text}
+                labelColor={colors.textSecondary}
+                placeholderColor={colors.textTertiary}
+                placeholder="Re-enter new password"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+                secureTextEntry
+              />
+              <AnimatedPressable
+                onPress={handleChangePassword}
+                disabled={savingPassword}
+                scaleValue={0.97}
+                style={{ marginTop: 8 }}
+              >
+                <View style={[
+                  styles.saveButton,
+                  { backgroundColor: colors.primary },
+                  savingPassword && { opacity: 0.6 },
+                ]}>
+                  {savingPassword ? (
+                    <ActivityIndicator color="#ffffff" />
+                  ) : (
+                    <Text style={styles.saveButtonText}>Update Password</Text>
+                  )}
+                </View>
+              </AnimatedPressable>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -600,135 +772,137 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: 20,
-    paddingTop: 24,
-    paddingBottom: 24,
-    borderBottomLeftRadius: GLASS.borderRadius,
-    borderBottomRightRadius: GLASS.borderRadius,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
   title: {
-    fontSize: 30,
-    fontWeight: 'bold',
-    color: '#FFFFFF',
+    fontSize: 34,
+    fontWeight: '700',
+    letterSpacing: -0.5,
   },
+
+  // Sections
   sectionWrapper: {
-    marginHorizontal: 16,
-    marginTop: 20,
-  },
-  section: {
-    padding: 16,
+    marginHorizontal: 20,
+    marginTop: 24,
   },
   sectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: ACCENT_LIGHT,
-    letterSpacing: 1.5,
-    textTransform: 'uppercase',
-    marginBottom: 14,
+    fontSize: 12,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    marginBottom: 8,
+    marginLeft: 4,
   },
-  glassRow: {
+  sectionCard: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
+      android: { elevation: 2 },
+    }),
+  },
+
+  // Rows
+  row: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 13,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
   },
-  editableValue: {
+  rowRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
-  rowSeparator: {
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  settingLabel: {
+  rowLabel: {
     fontSize: 16,
-    fontWeight: '500',
+    fontWeight: '400',
   },
-  settingValue: {
+  rowValue: {
     fontSize: 16,
   },
+  chevron: {
+    fontSize: 20,
+    fontWeight: '300',
+  },
+  separator: {
+    height: 0.5,
+    marginLeft: 16,
+  },
+
+  // Theme
   themeSelector: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   themeButtonWrapper: {
-    borderRadius: 10,
+    borderRadius: 8,
     overflow: 'hidden',
   },
   themeButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 10,
-    overflow: 'hidden',
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  themeButtonInactive: {
-    borderWidth: 1,
-    borderColor: 'rgba(128, 128, 128, 0.3)',
-  },
   themeButtonText: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '500',
-  },
-  themeButtonTextActive: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  navRow: {
-    paddingVertical: 13,
-  },
-  navRowInner: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  navRowText: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  chevron: {
-    fontSize: 22,
-    color: ACCENT_LIGHT,
-    fontWeight: '300',
-  },
-  logoutCard: {
-    borderColor: 'rgba(255, 59, 48, 0.25)',
-    borderWidth: 1,
-  },
-  logoutRow: {
-    paddingVertical: 13,
-  },
-  logoutRowInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  logoutText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#FF3B30',
   },
 
-  // ─── Modal Shared ──────────────────────────────────────────────────
+  // Accent color picker
+  accentSelector: {
+    flexDirection: 'row',
+    gap: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  colorSwatch: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  colorSwatchSelected: {
+    borderWidth: 2.5,
+    borderColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    elevation: 3,
+  },
+  swatchCheck: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  // Modals
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: GLASS.borderColor,
-    borderBottomWidth: 0,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 20,
-    borderBottomWidth: 1,
+    borderBottomWidth: 0.5,
   },
   modalTitle: {
     fontSize: 20,
@@ -740,43 +914,32 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginTop: 2,
   },
-  modalCancelButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: GLASS.borderColor,
-    overflow: 'hidden',
-  },
-  modalCancelText: {
-    fontSize: 14,
-    fontWeight: '600',
+  modalCancel: {
+    fontSize: 16,
+    fontWeight: '500',
   },
   modalBody: {
     padding: 20,
   },
   saveButton: {
-    borderRadius: GLASS.borderRadius,
+    borderRadius: 14,
     paddingVertical: 16,
     alignItems: 'center',
     justifyContent: 'center',
     minHeight: 52,
   },
   saveButtonText: {
-    color: '#FFFFFF',
+    color: '#ffffff',
     fontSize: 16,
     fontWeight: '700',
   },
 
-  // ─── Currency Modal ────────────────────────────────────────────────
+  // Currency Modal
   currencyModalContent: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     maxHeight: '80%',
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: GLASS.borderColor,
-    borderBottomWidth: 0,
   },
   currencyList: {
     padding: 16,
@@ -789,8 +952,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
     borderRadius: 12,
-    borderWidth: 1,
-    overflow: 'hidden',
+    borderWidth: 0.5,
     minHeight: 56,
   },
   currencyInfo: {
