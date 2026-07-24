@@ -29,8 +29,11 @@ export class RegisterDto {
   @MinLength(12)
   password: string;
 
+  // Optional — the post-signup profile step collects the name; the backend
+  // falls back to the email prefix so accounts are never nameless.
+  @IsOptional()
   @IsString()
-  name: string;
+  name?: string;
 
   @IsOptional()
   @IsString()

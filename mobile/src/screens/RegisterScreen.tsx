@@ -24,7 +24,6 @@ const BENTO_RADIUS = 18;
 
 export default function RegisterScreen({ navigation }: any) {
   const { colors, isDark } = useTheme();
-  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -32,14 +31,15 @@ export default function RegisterScreen({ navigation }: any) {
   const { register } = useAuth();
 
   const handleRegister = async () => {
-    if (!name || !email || !password) {
+    if (!email || !password) {
       Alert.alert('Error', 'Please fill in all required fields');
       return;
     }
 
     setLoading(true);
     try {
-      await register(email, password, name, phoneNumber || undefined);
+      // Name is collected on the Set-up-your-profile step right after signup.
+      await register(email, password, undefined, phoneNumber || undefined);
     } catch (error: any) {
       Alert.alert('Registration Failed', error.message || 'Could not create account');
     } finally {
@@ -75,17 +75,6 @@ export default function RegisterScreen({ navigation }: any) {
               {/* Form Card */}
               <Animated.View entering={FadeInDown.duration(400).delay(80)}>
                 <GlassCard style={styles.formCard} tint={isDark ? 'dark' : 'light'}>
-                  <GlassInput
-                    label="Full Name"
-                    isDark={isDark}
-                    textColor={colors.text}
-                    placeholderColor={colors.textTertiary}
-                    labelColor={colors.textSecondary}
-                    placeholder="Full Name"
-                    value={name}
-                    onChangeText={setName}
-                  />
-
                   <GlassInput
                     label="Email"
                     isDark={isDark}

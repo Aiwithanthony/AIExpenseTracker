@@ -16,20 +16,38 @@ interface User {
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  /** True right after account creation until the profile step (name +
+   *  currency) is completed — the navigator shows SetupProfile instead of
+   *  the main app while set. Persisted so a mid-setup app kill resumes it. */
+  needsSetup: boolean;
+  completeSetup: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string, phoneNumber?: string) => Promise<void>;
+  register: (email: string, password: string, name?: string, phoneNumber?: string) => Promise<void>;
   logout: () => Promise<void>;
   appleLogin: () => Promise<void>;
-  setUserAfterOAuth: (userData: User) => void;
+  setUserAfterOAuth: (userData: User, isNewUser?: boolean) => void;
   updateUser: (data: { name?: string; currency?: string; whatsappNumber?: string }) => Promise<void>;
   // Note: googleLogin is now handled via useGoogleAuth hook in components
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const SETUP_FLAG_KEY = 'needs_profile_setup';
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [needsSetup, setNeedsSetup] = useState(false);
+
+  async function markNeedsSetup() {
+    setNeedsSetup(true);
+    await AsyncStorage.setItem(SETUP_FLAG_KEY, '1').catch(() => {});
+  }
+
+  async function completeSetup() {
+    setNeedsSetup(false);
+    await AsyncStorage.removeItem(SETUP_FLAG_KEY).catch(() => {});
+  }
 
   useEffect(() => {
     loadUser();
@@ -46,6 +64,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // network is briefly unavailable.
       const cachedUser = JSON.parse(userStr) as User;
       setUser(cachedUser);
+
+      // Resume an interrupted profile-setup step (app killed mid-onboarding).
+      const setupFlag = await AsyncStorage.getItem(SETUP_FLAG_KEY);
+      if (setupFlag === '1') setNeedsSetup(true);
 
       // Then confirm the session in the background.
       try {
@@ -77,24 +99,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(response.user);
   }
 
-  async function register(email: string, password: string, name: string, phoneNumber?: string) {
+  async function register(email: string, password: string, name?: string, phoneNumber?: string) {
     const response = await api.register(email, password, name, phoneNumber);
+    await markNeedsSetup();
     setUser(response.user);
   }
 
   async function logout() {
     await api.logout();
     clearScreenCache();
+    await completeSetup();
     setUser(null);
   }
 
   async function appleLogin() {
     const response = await signInWithApple();
+    if ((response as any)?.isNewUser) await markNeedsSetup();
     setUser(response.user);
   }
 
   // Helper function to set user after OAuth login (called from components)
-  function setUserAfterOAuth(userData: User) {
+  function setUserAfterOAuth(userData: User, isNewUser?: boolean) {
+    if (isNewUser) markNeedsSetup().catch(() => {});
     setUser(userData);
   }
 
@@ -104,7 +130,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, appleLogin, setUserAfterOAuth, updateUser }}>
+    <AuthContext.Provider
+      value={{ user, loading, needsSetup, completeSetup, login, register, logout, appleLogin, setUserAfterOAuth, updateUser }}
+    >
       {children}
     </AuthContext.Provider>
   );

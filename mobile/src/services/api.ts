@@ -217,11 +217,21 @@ class ApiService {
     return response;
   }
 
-  async register(email: string, password: string, name: string, phoneNumber?: string) {
-    const response = await this.request<{ access_token: string; refresh_token: string; user: any }>(
-      '/auth/register',
-      { method: 'POST', body: JSON.stringify({ email, password, name, phoneNumber }) },
-    );
+  async register(email: string, password: string, name?: string, phoneNumber?: string) {
+    const response = await this.request<{
+      access_token: string;
+      refresh_token: string;
+      isNewUser?: boolean;
+      user: any;
+    }>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email,
+        password,
+        ...(name && { name }),
+        ...(phoneNumber && { phoneNumber }),
+      }),
+    });
     await this.storeAuthResponse(response);
     return response;
   }

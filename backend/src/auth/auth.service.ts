@@ -34,6 +34,9 @@ export interface JwtPayload {
 export interface AuthResponse {
   access_token: string;
   refresh_token: string;
+  /** True when this call just created the account — the client shows the
+   *  one-time "set up your profile" step (name + currency). */
+  isNewUser?: boolean;
   user: {
     id: string;
     email: string;
@@ -107,13 +110,14 @@ export class AuthService {
   }
 
   /** Build a full AuthResponse for a user. */
-  private async buildAuthResponse(user: User): Promise<AuthResponse> {
+  private async buildAuthResponse(user: User, isNewUser = false): Promise<AuthResponse> {
     const access_token = this.signAccessToken(user);
     const refresh_token = await this.createRefreshToken(user.id);
 
     return {
       access_token,
       refresh_token,
+      ...(isNewUser && { isNewUser: true }),
       user: {
         id: user.id,
         email: user.email,
@@ -245,7 +249,7 @@ export class AuthService {
   async register(
     email: string,
     password: string,
-    name: string,
+    name: string | undefined,
     phoneNumber: string | undefined,
     ipAddress: string,
   ): Promise<AuthResponse> {
@@ -257,17 +261,23 @@ export class AuthService {
     const saltRounds = 12; // Increased from 10 for stronger hashing
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
+    // Name is optional at signup — the post-signup profile step collects it.
+    // Fall back to a capitalized email prefix so the account is never nameless.
+    const prefix = email.split('@')[0];
+    const displayName =
+      (name || '').trim() || prefix.charAt(0).toUpperCase() + prefix.slice(1);
+
     const user = this.usersRepository.create({
       email,
       passwordHash,
-      name,
+      name: displayName,
       phoneNumber,
     });
 
     const savedUser = await this.usersRepository.save(user);
     this.logger.log(`User registered: email=${email}, ip=${ipAddress}`);
 
-    return this.buildAuthResponse(savedUser);
+    return this.buildAuthResponse(savedUser, true);
   }
 
   /**
@@ -371,6 +381,7 @@ export class AuthService {
       const googleId = payload.sub;
 
       let user = await this.usersRepository.findOne({ where: { email } });
+      const isNewUser = !user;
 
       if (!user) {
         user = this.usersRepository.create({
@@ -388,7 +399,7 @@ export class AuthService {
       }
 
       this.logger.log(`Google login successful: ${user.email}`);
-      return this.buildAuthResponse(user);
+      return this.buildAuthResponse(user, isNewUser);
     } catch (error: any) {
       this.logger.error(`Google authentication failed: ${error.message}`, error.stack);
       throw new UnauthorizedException('Google authentication failed');
@@ -413,6 +424,7 @@ export class AuthService {
       const appleId = payload.sub;
 
       let user = await this.usersRepository.findOne({ where: { email: appleEmail } });
+      const isNewUser = !user;
 
       if (!user) {
         user = this.usersRepository.create({
@@ -430,7 +442,7 @@ export class AuthService {
       }
 
       this.logger.log(`Apple login successful: ${user.email}`);
-      return this.buildAuthResponse(user);
+      return this.buildAuthResponse(user, isNewUser);
     } catch (error: any) {
       this.logger.error(`Apple authentication failed: ${error.message}`, error.stack);
       throw new UnauthorizedException('Apple authentication failed');

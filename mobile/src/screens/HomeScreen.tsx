@@ -34,6 +34,8 @@ import {
   ChartBar,
   TrendUp,
   TrendDown,
+  Trophy,
+  Repeat,
 } from 'phosphor-react-native';
 import { useCachedFetch } from '../hooks/useCachedFetch';
 import { useOffline } from '../hooks/useOffline';
@@ -70,6 +72,32 @@ export default function HomeScreen({ navigation }: any) {
   );
   const stats = homeStats?.month;      // month scope: Spent/Saved + spending bar
   const allTime = homeStats?.allTime;  // all-time scope: hero total balance
+
+  // Plans glance card: budgets / savings goal / recurring. Hidden entirely
+  // until the user has created at least one of them.
+  const { data: plans } = useCachedFetch<any>('plans:home', async () => {
+    const [budgets, challenges, templates] = await Promise.all([
+      api.getBudgets().catch(() => []),
+      api.getChallenges().catch(() => []),
+      api.getTemplates().catch(() => []),
+    ]);
+    const budgetList = Array.isArray(budgets) ? budgets : [];
+    const statuses = (
+      await Promise.all(
+        budgetList.slice(0, 2).map((b: any) => api.getBudgetStatus(b.id).catch(() => null)),
+      )
+    ).filter(Boolean);
+    const goals = (Array.isArray(challenges) ? challenges : []).filter(
+      (c: any) => c.type === 'savings_goal',
+    );
+    return {
+      budgets: statuses,
+      goal: goals.find((g: any) => g.status === 'active') || goals[0] || null,
+      templatesCount: Array.isArray(templates) ? templates.length : 0,
+    };
+  });
+  const hasPlans =
+    !!plans && (plans.budgets.length > 0 || plans.goal || plans.templatesCount > 0);
 
   const scrollY = useSharedValue(0);
 
@@ -285,6 +313,78 @@ export default function HomeScreen({ navigation }: any) {
               </Animated.View>
             )}
 
+            {/* Plans: budgets / savings goal / recurring glance */}
+            {hasPlans && (
+              <Animated.View entering={FadeInDown.duration(400).delay(240)}>
+                <Text style={[styles.sectionTitle, { color: colors.textSecondary, marginTop: 6, marginBottom: 10 }]}>
+                  PLANS
+                </Text>
+                <View style={[styles.plansCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                  {plans.budgets.map((s: any) => {
+                    const pct = Math.max(0, s.percentageUsed || 0);
+                    const width = Math.min(100, pct);
+                    const barColor =
+                      pct >= 100 ? colors.error : pct >= 80 ? colors.warning : colors.primary;
+                    return (
+                      <AnimatedPressable
+                        key={s.budget.id}
+                        onPress={() => navigation.navigate('Budgets')}
+                        scaleValue={0.98}
+                      >
+                        <View style={styles.planRow}>
+                          <View style={{ flex: 1 }}>
+                            <View style={styles.planTopLine}>
+                              <Text style={[styles.planName, { color: colors.text }]} numberOfLines={1}>
+                                {s.budget.category?.name || 'Overall'} budget
+                              </Text>
+                              <Text style={[styles.planValue, { color: barColor }]}>
+                                {Math.round(pct)}%
+                              </Text>
+                            </View>
+                            <View style={[styles.planTrack, { backgroundColor: colors.inputBg }]}>
+                              <View
+                                style={[styles.planFill, { width: `${width}%`, backgroundColor: barColor }]}
+                              />
+                            </View>
+                          </View>
+                        </View>
+                      </AnimatedPressable>
+                    );
+                  })}
+                  {plans.goal && (
+                    <AnimatedPressable onPress={() => navigation.navigate('SavingsGoals')} scaleValue={0.98}>
+                      <View style={styles.planRow}>
+                        <Trophy size={18} color={colors.tintCoolText} weight="duotone" />
+                        <Text style={[styles.planName, { color: colors.text, flex: 1 }]} numberOfLines={1}>
+                          {plans.goal.name}
+                        </Text>
+                        <Text style={[styles.planValue, { color: colors.textSecondary }]}>
+                          {plans.goal.targetAmount > 0
+                            ? `${Math.round(
+                                Math.max(
+                                  0,
+                                  Math.min(1, (plans.goal.currentProgress || 0) / plans.goal.targetAmount),
+                                ) * 100,
+                              )}%`
+                            : ''}
+                        </Text>
+                      </View>
+                    </AnimatedPressable>
+                  )}
+                  {plans.templatesCount > 0 && (
+                    <AnimatedPressable onPress={() => navigation.navigate('Recurring')} scaleValue={0.98}>
+                      <View style={styles.planRow}>
+                        <Repeat size={18} color={colors.textSecondary} weight="duotone" />
+                        <Text style={[styles.planName, { color: colors.text, flex: 1 }]}>
+                          {plans.templatesCount} recurring · tap to log
+                        </Text>
+                      </View>
+                    </AnimatedPressable>
+                  )}
+                </View>
+              </Animated.View>
+            )}
+
             {/* Recent transactions */}
             {recent.length > 0 && (
               <Animated.View entering={FadeInDown.duration(400).delay(260)}>
@@ -429,6 +529,30 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
+
+  plansCard: {
+    borderRadius: BENTO_RADIUS,
+    borderWidth: 0.5,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    marginBottom: 18,
+  },
+  planRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+  },
+  planTopLine: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  planName: { fontSize: 13, fontWeight: '600' },
+  planValue: { fontSize: 13, fontWeight: '700' },
+  planTrack: { height: 6, borderRadius: 999, overflow: 'hidden' },
+  planFill: { height: 6, borderRadius: 999 },
 
   offlinePill: {
     flexDirection: 'row',

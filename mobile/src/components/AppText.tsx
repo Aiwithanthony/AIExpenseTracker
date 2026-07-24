@@ -8,30 +8,30 @@ import {
 } from 'react-native';
 
 /**
- * Drop-in replacements for RN's Text and TextInput that render in Nunito.
+ * Drop-in replacements for RN's Text and TextInput that render in Elms Sans.
  *
  * Why a wrapper instead of a global monkeypatch: on React Native 0.81 the core
  * Text/TextInput use the new `component()` type (plain function components with
  * no patchable `.render`), so the classic `Text.render` override is a no-op.
  * A wrapper component works on every RN version and architecture.
  *
- * Each element's `fontWeight` is mapped to the matching loaded Nunito cut,
+ * Each element's `fontWeight` is mapped to the matching loaded Elms Sans cut,
  * because expo-font registers each weight as its own family. We then neutralize
  * `fontWeight` so iOS doesn't synthesize a faux-bold on top of the real cut.
  * An explicit `fontFamily` on the caller's style opts that element out.
  */
 const WEIGHT_TO_FAMILY: Record<string, string> = {
-  '100': 'Nunito_300Light',
-  '200': 'Nunito_300Light',
-  '300': 'Nunito_300Light',
-  '400': 'Nunito_400Regular',
-  normal: 'Nunito_400Regular',
-  '500': 'Nunito_500Medium',
-  '600': 'Nunito_600SemiBold',
-  '700': 'Nunito_700Bold',
-  bold: 'Nunito_700Bold',
-  '800': 'Nunito_800ExtraBold',
-  '900': 'Nunito_800ExtraBold',
+  '100': 'ElmsSans-Light',
+  '200': 'ElmsSans-Light',
+  '300': 'ElmsSans-Light',
+  '400': 'ElmsSans-Regular',
+  normal: 'ElmsSans-Regular',
+  '500': 'ElmsSans-Medium',
+  '600': 'ElmsSans-SemiBold',
+  '700': 'ElmsSans-Bold',
+  bold: 'ElmsSans-Bold',
+  '800': 'ElmsSans-ExtraBold',
+  '900': 'ElmsSans-ExtraBold',
 };
 
 function nunitoStyle(style: any): any {
@@ -40,7 +40,7 @@ function nunitoStyle(style: any): any {
     return style; // caller set a deliberate font — leave it alone
   }
   const weight = String(flat.fontWeight ?? '400');
-  const fontFamily = WEIGHT_TO_FAMILY[weight] || 'Nunito_400Regular';
+  const fontFamily = WEIGHT_TO_FAMILY[weight] || 'ElmsSans-Regular';
   return [style, { fontFamily, fontWeight: 'normal' as const }];
 }
 

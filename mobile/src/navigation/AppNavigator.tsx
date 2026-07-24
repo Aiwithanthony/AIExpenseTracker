@@ -45,6 +45,10 @@ import InviteMembersScreen from '../screens/InviteMembersScreen';
 import GroupExpenseDetailScreen from '../screens/GroupExpenseDetailScreen';
 import GroupActivityScreen from '../screens/GroupActivityScreen';
 import GroupAnalyticsScreen from '../screens/GroupAnalyticsScreen';
+import BudgetsScreen from '../screens/BudgetsScreen';
+import SavingsGoalsScreen from '../screens/SavingsGoalsScreen';
+import RecurringScreen from '../screens/RecurringScreen';
+import SetupProfileScreen from '../screens/SetupProfileScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -155,7 +159,7 @@ function MainTabs() {
         tabBarInactiveTintColor: colors.textTertiary,
         tabBarLabelStyle: {
           fontSize: 10,
-          fontFamily: 'Nunito_600SemiBold',
+          fontFamily: 'ElmsSans-SemiBold',
           letterSpacing: 0.1,
         },
       }}
@@ -213,7 +217,7 @@ function MainTabs() {
 }
 
 export default function AppNavigator() {
-  const { user, loading } = useAuth();
+  const { user, loading, needsSetup } = useAuth();
   const { isDark, colors } = useTheme();
 
   // Invite deep links: when a token arrives, accept it (if signed in) and open
@@ -288,7 +292,7 @@ export default function AppNavigator() {
           },
           headerTintColor: colors.primary,
           headerTitleStyle: {
-            fontFamily: 'Nunito_600SemiBold',
+            fontFamily: 'ElmsSans-SemiBold',
             color: colors.text,
           },
           headerShadowVisible: false,
@@ -307,6 +311,14 @@ export default function AppNavigator() {
               options={{ headerShown: false }}
             />
           </>
+        ) : needsSetup ? (
+          // One-time post-signup step: confirm name + pick currency before
+          // entering the app (see needsSetup in AuthContext).
+          <Stack.Screen
+            name="SetupProfile"
+            component={SetupProfileScreen}
+            options={{ headerShown: false }}
+          />
         ) : (
           <>
             <Stack.Screen
@@ -393,6 +405,21 @@ export default function AppNavigator() {
               name="GroupAnalytics"
               component={GroupAnalyticsScreen}
               options={{ headerShown: false }}
+            />
+            <Stack.Screen
+              name="Budgets"
+              component={BudgetsScreen}
+              options={{ title: 'Budgets' }}
+            />
+            <Stack.Screen
+              name="SavingsGoals"
+              component={SavingsGoalsScreen}
+              options={{ title: 'Savings Goals' }}
+            />
+            <Stack.Screen
+              name="Recurring"
+              component={RecurringScreen}
+              options={{ title: 'Recurring' }}
             />
           </>
         )}

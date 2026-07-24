@@ -9,7 +9,6 @@
     "web": "expo start --web"
   },
   "dependencies": {
-    "@expo-google-fonts/nunito": "^0.4.2",
     "@expo/sdk-runtime-versions": "^1.0.0",
     "@isaacs/brace-expansion": "^5.0.0",
     "@react-native-async-storage/async-storage": "2.2.0",

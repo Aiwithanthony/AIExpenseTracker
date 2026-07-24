@@ -52,7 +52,7 @@ export default function LoginScreen({ navigation }: any) {
     try {
       const response = await signInWithGoogle();
       if (response?.user) {
-        setUserAfterOAuth(response.user);
+        setUserAfterOAuth(response.user, (response as any)?.isNewUser);
       }
     } catch (error: any) {
       Alert.alert('Google Sign In Failed', error.message || 'Could not complete Google sign-in. Try again.');

@@ -9,6 +9,7 @@ import {
   TouchableWithoutFeedback,
   ScrollView,
   KeyboardAvoidingView,
+  Switch,
 } from 'react-native';
 import { Text } from '../components/AppText';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -35,6 +36,7 @@ export default function AddExpenseScreen({ navigation, route }: any) {
   const [loading, setLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [saveAsTemplate, setSaveAsTemplate] = useState(false);
 
   const handleSubmit = async () => {
     if (!amount || !description) {
@@ -53,6 +55,20 @@ export default function AddExpenseScreen({ navigation, route }: any) {
         type,
         tags: tags ? tags.split(',').map(t => t.trim()) : undefined,
       });
+      // Optionally save this transaction as a recurring template (best-effort).
+      if (saveAsTemplate) {
+        api
+          .createTemplate({
+            name: description,
+            amount: parseFloat(amount),
+            currency: user?.currency || 'USD',
+            type,
+            categoryId: categoryId || undefined,
+            merchant: merchant || undefined,
+            description,
+          })
+          .catch(() => {});
+      }
       refreshExpenses().catch(() => {});
       navigation.goBack();
     } catch (error: any) {
@@ -338,6 +354,21 @@ export default function AddExpenseScreen({ navigation, route }: any) {
 
             {/* Submit */}
             <Animated.View entering={FadeInDown.delay(350).duration(400)}>
+              <View style={[styles.templateRow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.templateLabel, { color: colors.text }]}>Save as recurring</Text>
+                  <Text style={[styles.templateHint, { color: colors.textTertiary }]}>
+                    Adds it to Recurring for one-tap logging next time
+                  </Text>
+                </View>
+                <Switch
+                  value={saveAsTemplate}
+                  onValueChange={setSaveAsTemplate}
+                  trackColor={{ false: colors.inputBg, true: colors.primary }}
+                  thumbColor="#FFFFFF"
+                />
+              </View>
+
               <AnimatedPressable
                 onPress={handleSubmit}
                 disabled={loading}
@@ -487,6 +518,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#ffffff',
   },
+
+  templateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 14,
+    borderWidth: 0.5,
+    padding: 14,
+    marginBottom: 12,
+  },
+  templateLabel: { fontSize: 14, fontWeight: '600' },
+  templateHint: { fontSize: 11, marginTop: 2 },
 
   // Submit
   submitButton: {
